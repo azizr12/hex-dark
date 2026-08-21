@@ -31,6 +31,8 @@ static size_t pending_size;
 static size_t pending_cursor;
 static UINT fmt_ascii;
 static UINT fmt_hex;
+static int feature_menu_visible = 1;
+static UINT_PTR feature_menu_timer = 99;
 
 static size_t current_size(void) { return get_effective_size(&editor); }
 
@@ -158,6 +160,34 @@ static void redo_edit(HWND hwnd) {
     undo_stack[undo_count++] = s;
     InvalidateRect(hwnd, NULL, FALSE);
     UpdateVScroll(hwnd);
+}
+
+static void draw_feature_menu(HWND hwnd) {
+    if (!feature_menu_visible) return;
+    HDC dc = GetDC(hwnd);
+    if (!dc) return;
+    RECT r = {0, 0, clientRect.right, 35};
+    HBRUSH bg = CreateSolidBrush(cfg.col_menu_bg);
+    FillRect(dc, &r, bg);
+    DeleteObject(bg);
+    SelectObject(dc, hFont);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, cfg.col_menu_text);
+    const char *text = "[O]pen  [S]ave  [M]ode  [B]PR  [V]iew  [U]ndo  [R]edo  [C]opy  [P]ast  [X]xit";
+    TextOutA(dc, 15, 8, text, (int)strlen(text));
+    ReleaseDC(hwnd, dc);
+}
+
+static int feature_menu_action(HWND hwnd, int x, int y) {
+    if (y >= 35 || !feature_menu_visible) return 0;
+    int block = x / (8 * charWidth);
+    switch (block) {
+        case 5: undo_edit(hwnd); return 1;
+        case 6: redo_edit(hwnd); return 1;
+        case 7: copy_selection(hwnd); return 1;
+        case 8: paste_overwrite(hwnd); return 1;
+        default: return 0;
+    }
 }
 
 static int point_offset(int x, int y, int *mode) {
@@ -293,6 +323,24 @@ static int paste_overwrite(HWND hwnd) {
 }
 
 static LRESULT CALLBACK FeatureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_PAINT) {
+        LRESULT r = CallWindowProcA(original_proc, hwnd, msg, wParam, lParam);
+        draw_feature_menu(hwnd);
+        return r;
+    }
+    if (msg == WM_TIMER && wParam == feature_menu_timer) {
+        feature_menu_visible = 0;
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+    }
+    if (msg == WM_MOUSEMOVE) {
+        int y = GET_Y_LPARAM(lParam);
+        if (y < 35) {
+            feature_menu_visible = 1;
+            SetTimer(hwnd, feature_menu_timer, (UINT)cfg.menu_hide_delay, NULL);
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+    }
     if (msg == WM_KEYDOWN) {
         int ctrl = GetKeyState(VK_CONTROL) & 0x8000;
         if (ctrl && (wParam == 'Z' || wParam == 'z')) { undo_edit(hwnd); return 0; }
@@ -303,6 +351,7 @@ static LRESULT CALLBACK FeatureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     } else if (msg == WM_CHAR) {
         begin_edit_tracking();
     } else if (msg == WM_LBUTTONDOWN) {
+        if (feature_menu_action(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) return 0;
         int mode = 0;
         int off = point_offset(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), &mode);
         if (off >= 0 && has_selection(&editor) && (size_t)off >= sel_min(&editor) && (size_t)off <= sel_max(&editor)) {
@@ -321,6 +370,7 @@ void FeaturesInstall(HWND hwnd) {
     fmt_ascii = RegisterClipboardFormatA("HexDark ASCII");
     fmt_hex = RegisterClipboardFormatA("HexDark HEX");
     original_proc = (WNDPROC)SetWindowLongPtrA(hwnd, GWLP_WNDPROC, (LONG_PTR)FeatureWndProc);
+    SetTimer(hwnd, feature_menu_timer, (UINT)cfg.menu_hide_delay, NULL);
 }
 
 static void enable_dark_mode_for_window(HWND hwnd) {
