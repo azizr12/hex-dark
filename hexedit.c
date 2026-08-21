@@ -79,7 +79,8 @@ void load_plugin(HexEditor *ed) {
 
     if (ed->plugin_handle) {
 #ifdef _WIN32
-        ed->plugin_translate = (TranslateFunc)GetProcAddress((HMODULE)ed->plugin_handle, "translate_byte");
+        /* Cast through void* to silence -Wcast-function-type warning */
+        ed->plugin_translate = (TranslateFunc)(void*)GetProcAddress((HMODULE)ed->plugin_handle, "translate_byte");
 #else
         ed->plugin_translate = (TranslateFunc)dlsym(ed->plugin_handle, "translate_byte");
 #endif
@@ -104,21 +105,21 @@ void init_tracker(DirtyTracker *t) {
 void load_window(HexEditor *ed, size_t target_offset) {
     int bpr = ed->bytes_per_row;
     ed->window_start = (target_offset / bpr) * bpr;
-    fseek(ed->fp, ed->window_start, SEEK_SET);
+    fseek(ed->fp, (long)ed->window_start, SEEK_SET);
     ed->window_len = fread(ed->window, 1, WINDOW_SIZE, ed->fp);
 }
 
 uint8_t get_byte(HexEditor *ed, size_t offset) {
     if (offset >= ed->file_size) return 0;
     
-    // 1. Check dirty tracker first
+    /* 1. Check dirty tracker first */
     for (size_t i = 0; i < ed->tracker.count; i++) {
         if (ed->tracker.items[i].offset == offset) {
             return ed->tracker.items[i].modified;
         }
     }
     
-    // 2. Fallback to window
+    /* 2. Fallback to window */
     if (offset < ed->window_start || offset >= ed->window_start + ed->window_len) {
         load_window(ed, offset);
     }
@@ -128,7 +129,7 @@ uint8_t get_byte(HexEditor *ed, size_t offset) {
 void set_byte(HexEditor *ed, size_t offset, uint8_t value) {
     if (offset >= ed->file_size) return;
     
-    // Check if already dirty
+    /* Check if already dirty */
     for (size_t i = 0; i < ed->tracker.count; i++) {
         if (ed->tracker.items[i].offset == offset) {
             ed->tracker.items[i].modified = value;
@@ -136,13 +137,13 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value) {
         }
     }
     
-    // Read true original from file/window
+    /* Read true original from file/window */
     if (offset < ed->window_start || offset >= ed->window_start + ed->window_len) {
         load_window(ed, offset);
     }
     uint8_t true_orig = ed->window[offset - ed->window_start];
     
-    // Add to tracker
+    /* Add to tracker */
     if (ed->tracker.count == ed->tracker.capacity) {
         ed->tracker.capacity *= 2;
         ed->tracker.items = realloc(ed->tracker.items, ed->tracker.capacity * sizeof(DirtyByte));
@@ -155,7 +156,7 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value) {
 
 int save_dirty(DirtyTracker *t, FILE *fp) {
     for (size_t i = 0; i < t->count; i++) {
-        fseek(fp, t->items[i].offset, SEEK_SET);
+        fseek(fp, (long)t->items[i].offset, SEEK_SET);
         if (fwrite(&t->items[i].modified, 1, 1, fp) != 1) return -1;
     }
     fflush(fp);
@@ -170,7 +171,7 @@ int init_file(HexEditor *ed, const char *filename) {
         if (!ed->fp) return -1;
     }
     fseek(ed->fp, 0, SEEK_END);
-    ed->file_size = ftell(ed->fp);
+    ed->file_size = (size_t)ftell(ed->fp);
     fseek(ed->fp, 0, SEEK_SET);
     strncpy(ed->filename, filename, sizeof(ed->filename) - 1);
     init_tracker(&ed->tracker);
@@ -198,15 +199,15 @@ void draw_screen(HexEditor *ed) {
         size_t offset = ed->view_offset + (i * bpr);
         if (offset >= ed->file_size && ed->file_size > 0) break;
 
-        attron(COLOR_PAIR(1)); // Cyan for offset
-        printw("%08ZX  ", offset);
+        attron(COLOR_PAIR(1)); /* Cyan for offset */
+        printw("%08llX  ", (unsigned long long)offset);
         attroff(COLOR_PAIR(1));
 
-        attron(COLOR_PAIR(2)); // Green for hex
+        attron(COLOR_PAIR(2)); /* Green for hex */
         for (int j = 0; j < bpr; j++) {
             if (offset + j < ed->file_size) {
                 if (offset + j == ed->cursor && ed->edit_mode == 0) {
-                    attron(COLOR_PAIR(4)); // Highlight
+                    attron(COLOR_PAIR(4)); /* Highlight */
                     printw("%02X", get_byte(ed, offset + j));
                     attroff(COLOR_PAIR(4));
                 } else {
@@ -222,7 +223,7 @@ void draw_screen(HexEditor *ed) {
 
         printw(" | ");
 
-        attron(COLOR_PAIR(3)); // Yellow for ASCII
+        attron(COLOR_PAIR(3)); /* Yellow for ASCII */
         for (int j = 0; j < bpr; j++) {
             if (offset + j < ed->file_size) {
                 uint8_t c = get_byte(ed, offset + j);
@@ -243,10 +244,13 @@ void draw_screen(HexEditor *ed) {
     }
 
     attron(A_REVERSE);
-    mvprintw(LINES - 1, 0, " %.20s | Size: %zu | Off: %08ZX | Mode: %s | BPR: %d | Dirty: %zu | F2:Save F3:BPR F5:Search Tab:Mode q:Quit ",
-             ed->filename, ed->file_size, ed->cursor, 
+    mvprintw(LINES - 1, 0, " %.20s | Size: %llu | Off: %08llX | Mode: %s | BPR: %d | Dirty: %llu | F2:Save F3:BPR F5:Search Tab:Mode q:Quit ",
+             ed->filename, 
+             (unsigned long long)ed->file_size, 
+             (unsigned long long)ed->cursor, 
              ed->edit_mode == 0 ? "HEX " : "TEXT",
-             ed->bytes_per_row, ed->tracker.count);
+             ed->bytes_per_row, 
+             (unsigned long long)ed->tracker.count);
     attroff(A_REVERSE);
     refresh();
 }
@@ -288,20 +292,20 @@ void do_search(HexEditor *ed) {
     size_t pat_len = 0;
     
     if (is_hex) {
-        for (size_t j = 0; j < i; j++) {
+        for (size_t j = 0; j < (size_t)i; j++) {
             if (input[j] == ' ') continue;
-            if (j + 1 >= i) break;
+            if (j + 1 >= (size_t)i) break;
             int h = hex_char_to_val(input[j]);
             int l = hex_char_to_val(input[j+1]);
-            if (h != -1 && l != -1) pattern[pat_len++] = (h << 4) | l;
+            if (h != -1 && l != -1) pattern[pat_len++] = (uint8_t)((h << 4) | l);
             j++;
         }
     } else {
-        memcpy(pattern, input, i);
-        pat_len = i;
+        memcpy(pattern, input, (size_t)i);
+        pat_len = (size_t)i;
     }
     
-    size_t found = -1;
+    size_t found = (size_t)-1;
     for (size_t off = 0; off <= ed->file_size - pat_len; off++) {
         int match = 1;
         for (size_t k = 0; k < pat_len; k++) {
@@ -325,44 +329,63 @@ void handle_input(HexEditor *ed) {
     int ch = getch();
     static int hex_state = 0;
     static uint8_t temp_hex = 0;
-    int bpr = ed->bytes_per_row;
+    size_t bpr = (size_t)ed->bytes_per_row;
 
     switch (ch) {
         case 'q': case 'Q':
             cleanup_editor(ed); endwin(); exit(0);
-        case '\t': // Tab
+        case '\t': /* Tab */
             ed->edit_mode = 1 - ed->edit_mode; hex_state = 0; break;
-        case KEY_F3: // Cycle BPR
-            { int bprs[] = {8, 16, 24, 32, 48}; int idx = 0;
-              for(int k=0; k<5; k++) if(bprs[k] == bpr) idx = k;
-              ed->bytes_per_row = bprs[(idx + 1) % 5]; hex_state = 0; } break;
-        case KEY_F2: // Save
-            if (save_dirty(&ed->tracker, ed->fp) == 0) { /* Success */ } break;
-        case KEY_F5: // Search
-            do_search(ed); break;
+        case KEY_F(3): /* Cycle BPR */
+            { 
+                int bprs[] = {8, 16, 24, 32, 48}; 
+                int idx = 0;
+                for(int k = 0; k < 5; k++) if(bprs[k] == ed->bytes_per_row) idx = k;
+                ed->bytes_per_row = bprs[(idx + 1) % 5]; 
+                hex_state = 0; 
+            } 
+            break;
+        case KEY_F(2): /* Save */
+            if (save_dirty(&ed->tracker, ed->fp) == 0) { /* Success */ } 
+            break;
+        case KEY_F(5): /* Search */
+            do_search(ed); 
+            break;
             
         case KEY_UP:
-            if (ed->cursor >= bpr) ed->cursor -= bpr; hex_state = 0; break;
+            if (ed->cursor >= bpr) { ed->cursor -= bpr; } 
+            hex_state = 0; 
+            break;
         case KEY_DOWN:
-            if (ed->cursor + bpr < ed->file_size) ed->cursor += bpr; hex_state = 0; break;
+            if (ed->cursor + bpr < ed->file_size) { ed->cursor += bpr; } 
+            hex_state = 0; 
+            break;
         case KEY_LEFT:
-            if (ed->cursor > 0) ed->cursor--; hex_state = 0; break;
+            if (ed->cursor > 0) { ed->cursor--; } 
+            hex_state = 0; 
+            break;
         case KEY_RIGHT:
-            if (ed->cursor + 1 < ed->file_size) ed->cursor++; hex_state = 0; break;
+            if (ed->cursor + 1 < ed->file_size) { ed->cursor++; } 
+            hex_state = 0; 
+            break;
 
         default:
             if (ed->file_size > 0) {
-                if (ed->edit_mode == 0) { // HEX MODE
+                if (ed->edit_mode == 0) { /* HEX MODE */
                     int val = hex_char_to_val(ch);
                     if (val != -1) {
-                        if (hex_state == 0) { temp_hex = (uint8_t)(val << 4); hex_state = 1; }
-                        else {
+                        if (hex_state == 0) { 
+                            temp_hex = (uint8_t)(val << 4); 
+                            hex_state = 1; 
+                        } else {
                             set_byte(ed, ed->cursor, temp_hex | (uint8_t)val);
                             hex_state = 0;
                             if (ed->cursor + 1 < ed->file_size) ed->cursor++;
                         }
-                    } else { hex_state = 0; }
-                } else { // ASCII MODE
+                    } else { 
+                        hex_state = 0; 
+                    }
+                } else { /* ASCII MODE */
                     if (isprint(ch)) {
                         set_byte(ed, ed->cursor, (uint8_t)ch);
                         if (ed->cursor + 1 < ed->file_size) ed->cursor++;
@@ -372,12 +395,15 @@ void handle_input(HexEditor *ed) {
             break;
     }
     
-    // Update viewport
+    /* Update viewport */
     int max_rows = LINES - 2;
     size_t cursor_row = ed->cursor / bpr;
     size_t view_start_row = ed->view_offset / bpr;
-    if (cursor_row < view_start_row) ed->view_offset = cursor_row * bpr;
-    else if (cursor_row >= view_start_row + max_rows) ed->view_offset = (cursor_row - max_rows + 1) * bpr;
+    if (cursor_row < view_start_row) {
+        ed->view_offset = cursor_row * bpr;
+    } else if (cursor_row >= view_start_row + (size_t)max_rows) {
+        ed->view_offset = (cursor_row - max_rows + 1) * bpr;
+    }
 }
 
 /* ========================================================================
@@ -395,7 +421,7 @@ int main(int argc, char *argv[]) {
     init_pair(1, COLOR_CYAN, COLOR_BLACK);
     init_pair(2, COLOR_GREEN, COLOR_BLACK);
     init_pair(3, COLOR_YELLOW, COLOR_BLACK);
-    init_pair(4, COLOR_BLACK, COLOR_CYAN); // Cursor highlight
+    init_pair(4, COLOR_BLACK, COLOR_CYAN); /* Cursor highlight */
     
     raw(); keypad(stdscr, TRUE); noecho(); curs_set(0);
 
