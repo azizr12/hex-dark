@@ -1,4 +1,4 @@
-name: C Hex Editor CI
+name: Windows C Hex Editor CI
 
 on:
   push:
@@ -7,38 +7,41 @@ on:
     branches: [ "main", "master" ]
 
 jobs:
-  build:
-    name: Build and Test on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+  build-windows:
+    name: Build and Test on Windows (MSYS2/MinGW-w64)
+    runs-on: windows-latest
     
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+    # Set default shell to MSYS2 for all steps
+    defaults:
+      run:
+        shell: msys2 {0}
 
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Install Dependencies (Ubuntu)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential pkg-config libncursesw5-dev
-
-    - name: Install Dependencies (macOS)
-      if: matrix.os == 'macos-latest'
-      run: |
-        brew install pkg-config ncurses
+    - name: Setup MSYS2 and Install Dependencies
+      uses: msys2/setup-msys2@v2
+      with:
+        update: true
+        install: >-
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-ncurses
+          mingw-w64-x86_64-pkg-config
+          make
 
     - name: Build Project
-      run: make all
+      run: |
+        mingw32-make all
 
     - name: Run Sanity Tests
-      run: make test
+      run: |
+        mingw32-make test
 
     - name: Upload Build Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: hexedit-${{ matrix.os }}
-        path: hexedit
+        name: hexedit-windows-x64
+        path: hexedit.exe
         retention-days: 7
