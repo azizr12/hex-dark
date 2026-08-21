@@ -1,15 +1,21 @@
-name: Windows GUI Hex Editor CI
+name: Build and Release Hex Editor
 
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
+    # CRITICAL: Only trigger this workflow when the VERSION file is modified
+    paths:
+      - 'VERSION'
+
+# CRITICAL: Grant permission to create Releases and Tags
+permissions:
+  contents: write
 
 jobs:
-  build-windows:
-    name: Build Windows GUI Hex Editor
+  build-and-release:
+    name: Build and Publish Release
     runs-on: windows-latest
+    
     defaults:
       run:
         shell: msys2 {0}
@@ -17,6 +23,15 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
+
+    # Extract the version string from the root VERSION file
+    - name: Read Version from File
+      id: get_version
+      run: |
+        # Read the file, strip any hidden carriage returns or spaces
+        VERSION=$(cat VERSION | tr -d '[:space:]')
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Detected version: $VERSION"
 
     - name: Setup MSYS2 and Install Dependencies
       uses: msys2/setup-msys2@v2
@@ -30,9 +45,15 @@ jobs:
     - name: Build Project
       run: mingw32-make all
 
-    - name: Upload Build Artifact
-      uses: actions/upload-artifact@v4
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
       with:
-        name: hexedit-gui-windows-x64
-        path: hexedit.exe
-        retention-days: 7
+        # Use the version extracted from the file to tag the release
+        tag_name: v${{ steps.get_version.outputs.version }}
+        name: Hex Editor v${{ steps.get_version.outputs.version }}
+        # Attach the compiled executable to the release
+        files: hexedit.exe
+        # Automatically generate release notes from recent commits
+        generate_release_notes: true
+        # If the tag already exists, update it instead of failing
+        make_latest: true
