@@ -77,24 +77,25 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value)
         return;
     }
 
-    /* ---- File mode: allow extending in overwrite mode ---- */
+    /* ---- File mode: edit only the dirty overlay. ---- */
     if (offset >= ed->file_size) {
-        /* Extend the physical file immediately */
-        fseek(ed->fp, (long)offset, SEEK_SET);
-        fwrite(&value, 1, 1, ed->fp);
-        fflush(ed->fp);
-        ed->file_size = offset + 1;
-        /* Record in tracker (original = 0 for new bytes) */
+        /*
+         * Do NOT extend the physical file here.  The editor's file_size
+         * is the logical document size and the new byte lives entirely
+         * in the dirty tracker until Save.
+         */
         if (ed->tracker.count == ed->tracker.capacity) {
             ed->tracker.capacity *= 2;
             ed->tracker.items = (DirtyByte *)realloc(
                 ed->tracker.items,
                 ed->tracker.capacity * sizeof(DirtyByte));
         }
+
         ed->tracker.items[ed->tracker.count].offset   = offset;
-        ed->tracker.items[ed->tracker.count].original  = 0;
-        ed->tracker.items[ed->tracker.count].modified  = value;
+        ed->tracker.items[ed->tracker.count].original = 0;
+        ed->tracker.items[ed->tracker.count].modified = value;
         ed->tracker.count++;
+        ed->file_size = offset + 1;
         return;
     }
 
@@ -131,11 +132,13 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value)
 int save_dirty(HexEditor *ed)
 {
     if (ed->memory_mode) return -1;   /* GUI handles memory-mode save */
+
     for (size_t i = 0; i < ed->tracker.count; i++) {
         fseek(ed->fp, (long)ed->tracker.items[i].offset, SEEK_SET);
         if (fwrite(&ed->tracker.items[i].modified, 1, 1, ed->fp) != 1)
             return -1;
     }
+
     fflush(ed->fp);
     ed->tracker.count = 0;
     return 0;
