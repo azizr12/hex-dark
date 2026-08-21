@@ -1,430 +1,298 @@
+#include <windows.h>
+#include <commdlg.h>
+#include <shellapi.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 #include <ctype.h>
-#include <ncurses.h>
-
-#ifdef _WIN32
-#include <windows.h>
-#define LOAD_LIB(name) LoadLibraryA(name)
-#define GET_SYM(lib, name) GetProcAddress((HMODULE)lib, name)
-#define FREE_LIB(lib) FreeLibrary((HMODULE)lib)
-#else
-#include <dlfcn.h>
-#define LOAD_LIB(name) dlopen(name, RTLD_LAZY)
-#define GET_SYM(lib, name) dlsym(lib, name)
-#define FREE_LIB(lib) dlclose(lib)
-#endif
 
 /* ========================================================================
- * Data Structures
+ * Core Data Structures & File I/O (Unchanged RAM-Only Engine)
  * ======================================================================== */
 
 #define WINDOW_SIZE 4096
+typedef struct { size_t offset; uint8_t original; uint8_t modified; } DirtyByte;
+typedef struct { DirtyByte *items; size_t count; size_t capacity; } DirtyTracker;
 
 typedef struct {
-    size_t offset;
-    uint8_t original;
-    uint8_t modified;
-} DirtyByte;
-
-typedef struct {
-    DirtyByte *items;
-    size_t count;
-    size_t capacity;
-} DirtyTracker;
-
-typedef uint8_t (*TranslateFunc)(uint8_t);
-
-typedef struct {
-    FILE *fp;
-    size_t file_size;
-    size_t cursor;
-    size_t view_offset;
-    int bytes_per_row;
-    int edit_mode; /* 0 = HEX, 1 = ASCII */
-    
-    uint8_t window[WINDOW_SIZE];
-    size_t window_start;
-    size_t window_len;
-    
-    char filename[256];
-    DirtyTracker tracker;
-    
-    void *plugin_handle;
-    TranslateFunc plugin_translate;
+    FILE *fp; size_t file_size; size_t cursor; size_t view_offset;
+    int bytes_per_row; int edit_mode; int view_layout; // 0=Hex+ASCII, 1=ASCII Only
+    uint8_t window[WINDOW_SIZE]; size_t window_start; size_t window_len;
+    char filename[256]; DirtyTracker tracker;
 } HexEditor;
 
-/* ========================================================================
- * Utility & Plugin Functions
- * ======================================================================== */
-
-int hex_char_to_val(int c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return -1;
-}
-
-void load_plugin(HexEditor *ed) {
-    ed->plugin_handle = NULL;
-    ed->plugin_translate = NULL;
-    
-#ifdef _WIN32
-    ed->plugin_handle = LoadLibraryA("hexedit_plugin.dll");
-#else
-    ed->plugin_handle = dlopen("./hexedit_plugin.so", RTLD_LAZY);
-#endif
-
-    if (ed->plugin_handle) {
-#ifdef _WIN32
-        /* Cast through void* to silence -Wcast-function-type warning */
-        ed->plugin_translate = (TranslateFunc)(void*)GetProcAddress((HMODULE)ed->plugin_handle, "translate_byte");
-#else
-        ed->plugin_translate = (TranslateFunc)dlsym(ed->plugin_handle, "translate_byte");
-#endif
-    }
-}
-
-uint8_t translate_char(HexEditor *ed, uint8_t b) {
-    if (ed->plugin_translate) return ed->plugin_translate(b);
-    return isprint(b) ? b : '.';
-}
-
-/* ========================================================================
- * File I/O & Dirty Tracking
- * ======================================================================== */
-
-void init_tracker(DirtyTracker *t) {
-    t->capacity = 1024;
-    t->count = 0;
-    t->items = malloc(t->capacity * sizeof(DirtyByte));
-}
-
+void init_tracker(DirtyTracker *t) { t->capacity = 1024; t->count = 0; t->items = malloc(t->capacity * sizeof(DirtyByte)); }
 void load_window(HexEditor *ed, size_t target_offset) {
-    int bpr = ed->bytes_per_row;
-    ed->window_start = (target_offset / bpr) * bpr;
+    int bpr = ed->bytes_per_row; ed->window_start = (target_offset / bpr) * bpr;
     fseek(ed->fp, (long)ed->window_start, SEEK_SET);
     ed->window_len = fread(ed->window, 1, WINDOW_SIZE, ed->fp);
 }
-
 uint8_t get_byte(HexEditor *ed, size_t offset) {
     if (offset >= ed->file_size) return 0;
-    
-    /* 1. Check dirty tracker first */
-    for (size_t i = 0; i < ed->tracker.count; i++) {
-        if (ed->tracker.items[i].offset == offset) {
-            return ed->tracker.items[i].modified;
-        }
-    }
-    
-    /* 2. Fallback to window */
-    if (offset < ed->window_start || offset >= ed->window_start + ed->window_len) {
-        load_window(ed, offset);
-    }
+    for (size_t i = 0; i < ed->tracker.count; i++) if (ed->tracker.items[i].offset == offset) return ed->tracker.items[i].modified;
+    if (offset < ed->window_start || offset >= ed->window_start + ed->window_len) load_window(ed, offset);
     return ed->window[offset - ed->window_start];
 }
-
 void set_byte(HexEditor *ed, size_t offset, uint8_t value) {
     if (offset >= ed->file_size) return;
-    
-    /* Check if already dirty */
-    for (size_t i = 0; i < ed->tracker.count; i++) {
-        if (ed->tracker.items[i].offset == offset) {
-            ed->tracker.items[i].modified = value;
-            return;
-        }
-    }
-    
-    /* Read true original from file/window */
-    if (offset < ed->window_start || offset >= ed->window_start + ed->window_len) {
-        load_window(ed, offset);
-    }
+    for (size_t i = 0; i < ed->tracker.count; i++) if (ed->tracker.items[i].offset == offset) { ed->tracker.items[i].modified = value; return; }
+    if (offset < ed->window_start || offset >= ed->window_start + ed->window_len) load_window(ed, offset);
     uint8_t true_orig = ed->window[offset - ed->window_start];
-    
-    /* Add to tracker */
-    if (ed->tracker.count == ed->tracker.capacity) {
-        ed->tracker.capacity *= 2;
-        ed->tracker.items = realloc(ed->tracker.items, ed->tracker.capacity * sizeof(DirtyByte));
-    }
-    ed->tracker.items[ed->tracker.count].offset = offset;
-    ed->tracker.items[ed->tracker.count].original = true_orig;
-    ed->tracker.items[ed->tracker.count].modified = value;
-    ed->tracker.count++;
+    if (ed->tracker.count == ed->tracker.capacity) { ed->tracker.capacity *= 2; ed->tracker.items = realloc(ed->tracker.items, ed->tracker.capacity * sizeof(DirtyByte)); }
+    ed->tracker.items[ed->tracker.count].offset = offset; ed->tracker.items[ed->tracker.count].original = true_orig; ed->tracker.items[ed->tracker.count].modified = value; ed->tracker.count++;
 }
-
 int save_dirty(DirtyTracker *t, FILE *fp) {
-    for (size_t i = 0; i < t->count; i++) {
-        fseek(fp, (long)t->items[i].offset, SEEK_SET);
-        if (fwrite(&t->items[i].modified, 1, 1, fp) != 1) return -1;
-    }
-    fflush(fp);
-    t->count = 0;
-    return 0;
+    for (size_t i = 0; i < t->count; i++) { fseek(fp, (long)t->items[i].offset, SEEK_SET); if (fwrite(&t->items[i].modified, 1, 1, fp) != 1) return -1; }
+    fflush(fp); t->count = 0; return 0;
 }
-
 int init_file(HexEditor *ed, const char *filename) {
-    ed->fp = fopen(filename, "r+b");
-    if (!ed->fp) {
-        ed->fp = fopen(filename, "w+b");
-        if (!ed->fp) return -1;
-    }
-    fseek(ed->fp, 0, SEEK_END);
-    ed->file_size = (size_t)ftell(ed->fp);
-    fseek(ed->fp, 0, SEEK_SET);
-    strncpy(ed->filename, filename, sizeof(ed->filename) - 1);
-    init_tracker(&ed->tracker);
-    load_plugin(ed);
-    return 0;
+    ed->fp = fopen(filename, "r+b"); if (!ed->fp) { ed->fp = fopen(filename, "w+b"); if (!ed->fp) return -1; }
+    fseek(ed->fp, 0, SEEK_END); ed->file_size = (size_t)ftell(ed->fp); fseek(ed->fp, 0, SEEK_SET);
+    strncpy(ed->filename, filename, sizeof(ed->filename) - 1); init_tracker(&ed->tracker); return 0;
 }
-
-void cleanup_editor(HexEditor *ed) {
-    if (ed->fp) fclose(ed->fp);
-    free(ed->tracker.items);
-    if (ed->plugin_handle) FREE_LIB(ed->plugin_handle);
-}
+void cleanup_editor(HexEditor *ed) { if (ed->fp) fclose(ed->fp); free(ed->tracker.items); }
 
 /* ========================================================================
- * Rendering Engine (Dark Mode)
+ * GUI Configuration & State
  * ======================================================================== */
 
-void draw_screen(HexEditor *ed) {
-    clear();
-    int max_rows = LINES - 2;
-    if (max_rows <= 0) max_rows = 1;
-    int bpr = ed->bytes_per_row;
+#define MENU_HEIGHT 35
+#define STATUS_HEIGHT 25
+#define MENU_HIDE_DELAY 2000
 
-    for (int i = 0; i < max_rows; i++) {
-        size_t offset = ed->view_offset + (i * bpr);
-        if (offset >= ed->file_size && ed->file_size > 0) break;
-
-        attron(COLOR_PAIR(1)); /* Cyan for offset */
-        printw("%08llX  ", (unsigned long long)offset);
-        attroff(COLOR_PAIR(1));
-
-        attron(COLOR_PAIR(2)); /* Green for hex */
-        for (int j = 0; j < bpr; j++) {
-            if (offset + j < ed->file_size) {
-                if (offset + j == ed->cursor && ed->edit_mode == 0) {
-                    attron(COLOR_PAIR(4)); /* Highlight */
-                    printw("%02X", get_byte(ed, offset + j));
-                    attroff(COLOR_PAIR(4));
-                } else {
-                    printw("%02X", get_byte(ed, offset + j));
-                }
-            } else {
-                printw("  ");
-            }
-            printw(" ");
-            if (j == (bpr / 2) - 1 && bpr > 8) printw(" ");
-        }
-        attroff(COLOR_PAIR(2));
-
-        printw(" | ");
-
-        attron(COLOR_PAIR(3)); /* Yellow for ASCII */
-        for (int j = 0; j < bpr; j++) {
-            if (offset + j < ed->file_size) {
-                uint8_t c = get_byte(ed, offset + j);
-                uint8_t tc = translate_char(ed, c);
-                if (offset + j == ed->cursor && ed->edit_mode == 1) {
-                    attron(COLOR_PAIR(4));
-                    printw("%c", tc);
-                    attroff(COLOR_PAIR(4));
-                } else {
-                    printw("%c", tc);
-                }
-            } else {
-                printw(" ");
-            }
-        }
-        attroff(COLOR_PAIR(3));
-        printw("\n");
-    }
-
-    attron(A_REVERSE);
-    mvprintw(LINES - 1, 0, " %.20s | Size: %llu | Off: %08llX | Mode: %s | BPR: %d | Dirty: %llu | F2:Save F3:BPR F5:Search Tab:Mode q:Quit ",
-             ed->filename, 
-             (unsigned long long)ed->file_size, 
-             (unsigned long long)ed->cursor, 
-             ed->edit_mode == 0 ? "HEX " : "TEXT",
-             ed->bytes_per_row, 
-             (unsigned long long)ed->tracker.count);
-    attroff(A_REVERSE);
-    refresh();
-}
+HexEditor editor = {0};
+static int hex_state = 0; static uint8_t temp_hex = 0;
+HFONT hFont; int charWidth, charHeight; int visibleRows; RECT clientRect;
+BOOL menu_visible = TRUE;
 
 /* ========================================================================
- * Search & Input Handling
+ * Window Procedure (Event Handling & Custom Rendering)
  * ======================================================================== */
 
-void do_search(HexEditor *ed) {
-    echo(); curs_set(1);
-    attron(A_REVERSE);
-    mvprintw(LINES - 1, 0, " Search Mode: [H]ex or [T]ext? ");
-    clrtoeol();
-    refresh();
-    
-    int mode_ch = getch();
-    int is_hex = (mode_ch == 'h' || mode_ch == 'H');
-    
-    mvprintw(LINES - 1, 0, " Enter %s pattern [Esc to cancel]: ", is_hex ? "Hex" : "Text");
-    clrtoeol();
-    refresh();
-    
-    char input[256];
-    int i = 0;
-    while (1) {
-        int ch = getch();
-        if (ch == 27) break; 
-        if (ch == '\n' || ch == '\r') { input[i] = '\0'; break; }
-        if (ch == KEY_BACKSPACE || ch == 127) {
-            if (i > 0) { i--; mvaddch(LINES - 1, 32 + i, ' '); move(LINES - 1, 32 + i); }
-        } else if (i < 255) {
-            input[i++] = ch; mvaddch(LINES - 1, 32 + i - 1, ch);
-        }
-    }
-    noecho(); curs_set(0);
-    if (i == 0) return;
-    
-    uint8_t pattern[256];
-    size_t pat_len = 0;
-    
-    if (is_hex) {
-        for (size_t j = 0; j < (size_t)i; j++) {
-            if (input[j] == ' ') continue;
-            if (j + 1 >= (size_t)i) break;
-            int h = hex_char_to_val(input[j]);
-            int l = hex_char_to_val(input[j+1]);
-            if (h != -1 && l != -1) pattern[pat_len++] = (uint8_t)((h << 4) | l);
-            j++;
-        }
-    } else {
-        memcpy(pattern, input, (size_t)i);
-        pat_len = (size_t)i;
-    }
-    
-    size_t found = (size_t)-1;
-    for (size_t off = 0; off <= ed->file_size - pat_len; off++) {
-        int match = 1;
-        for (size_t k = 0; k < pat_len; k++) {
-            if (get_byte(ed, off + k) != pattern[k]) { match = 0; break; }
-        }
-        if (match) { found = off; break; }
-    }
-    
-    if (found != (size_t)-1) {
-        ed->cursor = found;
-        ed->view_offset = (found / ed->bytes_per_row) * ed->bytes_per_row;
-    } else {
-        attron(A_REVERSE | A_BOLD);
-        mvprintw(LINES - 1, 0, " NOT FOUND! Press any key... ");
-        attroff(A_REVERSE | A_BOLD);
-        refresh(); getch();
-    }
-}
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    int bpr = editor.bytes_per_row;
 
-void handle_input(HexEditor *ed) {
-    int ch = getch();
-    static int hex_state = 0;
-    static uint8_t temp_hex = 0;
-    size_t bpr = (size_t)ed->bytes_per_row;
+    switch (msg) {
+        case WM_CREATE:
+            DragAcceptFiles(hwnd, TRUE);
+            SetTimer(hwnd, 1, MENU_HIDE_DELAY, NULL);
+            hFont = CreateFontA(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, "Consolas");
+            if (!hFont) hFont = GetStockObject(ANSI_FIXED_FONT);
+            HDC hdc = GetDC(hwnd); SelectObject(hdc, hFont); TEXTMETRIC tm; GetTextMetrics(hdc, &tm);
+            charWidth = tm.tmAveCharWidth; charHeight = tm.tmHeight + tm.tmExternalLeading; ReleaseDC(hwnd, hdc);
+            break;
 
-    switch (ch) {
-        case 'q': case 'Q':
-            cleanup_editor(ed); endwin(); exit(0);
-        case '\t': /* Tab */
-            ed->edit_mode = 1 - ed->edit_mode; hex_state = 0; break;
-        case KEY_F(3): /* Cycle BPR */
-            { 
-                int bprs[] = {8, 16, 24, 32, 48}; 
-                int idx = 0;
-                for(int k = 0; k < 5; k++) if(bprs[k] == ed->bytes_per_row) idx = k;
-                ed->bytes_per_row = bprs[(idx + 1) % 5]; 
-                hex_state = 0; 
-            } 
+        case WM_SIZE:
+            clientRect.right = LOWORD(lParam); clientRect.bottom = HIWORD(lParam);
+            visibleRows = (clientRect.bottom - MENU_HEIGHT - STATUS_HEIGHT) / charHeight;
+            if (visibleRows < 1) visibleRows = 1;
             break;
-        case KEY_F(2): /* Save */
-            if (save_dirty(&ed->tracker, ed->fp) == 0) { /* Success */ } 
+
+        case WM_MOUSEMOVE: {
+            POINTS pts = MAKEPOINTS(lParam);
+            if (pts.y < MENU_HEIGHT) {
+                if (!menu_visible) { menu_visible = TRUE; InvalidateRect(hwnd, NULL, TRUE); }
+                SetTimer(hwnd, 1, MENU_HIDE_DELAY, NULL); 
+            }
             break;
-        case KEY_F(5): /* Search */
-            do_search(ed); 
+        }
+
+        case WM_TIMER:
+            if (wParam == 1 && menu_visible) { menu_visible = FALSE; InvalidateRect(hwnd, NULL, TRUE); }
             break;
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps; HDC hdc = BeginPaint(hwnd, &ps);
+            HDC memDC = CreateCompatibleDC(hdc); HBITMAP memBmp = CreateCompatibleBitmap(hdc, clientRect.right, clientRect.bottom);
+            HBITMAP oldBmp = (HBITMAP)SelectObject(memDC, memBmp);
+
+            // 1. Draw Full Dark Background
+            HBRUSH bgBrush = CreateSolidBrush(RGB(30, 30, 30));
+            FillRect(memDC, &clientRect, bgBrush); DeleteObject(bgBrush);
+            SelectObject(memDC, hFont); SetBkMode(memDC, TRANSPARENT);
+
+            // 2. Draw Top Menu / Title Bar Area
+            RECT topRect = {0, 0, clientRect.right, MENU_HEIGHT};
+            FillRect(memDC, &topRect, CreateSolidBrush(RGB(45, 45, 45)));
             
-        case KEY_UP:
-            if (ed->cursor >= bpr) { ed->cursor -= bpr; } 
-            hex_state = 0; 
-            break;
-        case KEY_DOWN:
-            if (ed->cursor + bpr < ed->file_size) { ed->cursor += bpr; } 
-            hex_state = 0; 
-            break;
-        case KEY_LEFT:
-            if (ed->cursor > 0) { ed->cursor--; } 
-            hex_state = 0; 
-            break;
-        case KEY_RIGHT:
-            if (ed->cursor + 1 < ed->file_size) { ed->cursor++; } 
-            hex_state = 0; 
-            break;
+            if (menu_visible) {
+                SetTextColor(memDC, RGB(220, 220, 220));
+                TextOut(memDC, 15, 8, "[O]pen  [S]ave  [M]ode  [B]PR  [V]iew  [X]xit", 44);
+            } else {
+                SetTextColor(memDC, RGB(100, 100, 100));
+                TextOut(memDC, 15, 8, "RAM-Only Hex Editor", 19);
+            }
 
-        default:
-            if (ed->file_size > 0) {
-                if (ed->edit_mode == 0) { /* HEX MODE */
-                    int val = hex_char_to_val(ch);
-                    if (val != -1) {
-                        if (hex_state == 0) { 
-                            temp_hex = (uint8_t)(val << 4); 
-                            hex_state = 1; 
-                        } else {
-                            set_byte(ed, ed->cursor, temp_hex | (uint8_t)val);
-                            hex_state = 0;
-                            if (ed->cursor + 1 < ed->file_size) ed->cursor++;
+            // 3. Draw Hex/ASCII Grid
+            int y = MENU_HEIGHT;
+            int xHex = 10 * charWidth;
+            int xAscii;
+
+            for (int i = 0; i < visibleRows; i++) {
+                size_t offset = editor.view_offset + (i * bpr);
+                if (offset >= editor.file_size && editor.file_size > 0) break;
+
+                // Draw Offset (Cyan)
+                SetTextColor(memDC, RGB(0, 255, 255)); char offStr[16]; sprintf(offStr, "%08llX  ", (unsigned long long)offset);
+                TextOut(memDC, 0, y, offStr, (int)strlen(offStr));
+
+                // Dynamic Layout Logic
+                if (editor.view_layout == 0) {
+                    // MODE 0: Offset + Hex + ASCII
+                    xAscii = xHex + (bpr * 3 + 2) * charWidth;
+                    
+                    // Draw Hex (Green)
+                    SetTextColor(memDC, RGB(0, 255, 0));
+                    for (int j = 0; j < bpr; j++) {
+                        if (offset + j < editor.file_size) {
+                            char hexStr[4]; sprintf(hexStr, "%02X ", get_byte(&editor, offset + j));
+                            if (offset + j == editor.cursor && editor.edit_mode == 0) {
+                                RECT r = {xHex + j*3*charWidth, y, xHex + (j+1)*3*charWidth, y + charHeight};
+                                FillRect(memDC, &r, CreateSolidBrush(RGB(0, 150, 255))); SetTextColor(memDC, RGB(0, 0, 0));
+                            }
+                            TextOut(memDC, xHex + j*3*charWidth, y, hexStr, 3);
+                            if (offset + j == editor.cursor && editor.edit_mode == 0) SetTextColor(memDC, RGB(0, 255, 0));
                         }
-                    } else { 
-                        hex_state = 0; 
                     }
-                } else { /* ASCII MODE */
-                    if (isprint(ch)) {
-                        set_byte(ed, ed->cursor, (uint8_t)ch);
-                        if (ed->cursor + 1 < ed->file_size) ed->cursor++;
+                } else {
+                    // MODE 1: Offset + ASCII Only
+                    xAscii = xHex; 
+                }
+
+                // Draw ASCII (Yellow)
+                SetTextColor(memDC, RGB(255, 255, 0));
+                for (int j = 0; j < bpr; j++) {
+                    if (offset + j < editor.file_size) {
+                        uint8_t c = get_byte(&editor, offset + j); char ch = isprint(c) ? (char)c : '.';
+                        if (offset + j == editor.cursor && editor.edit_mode == 1) {
+                            RECT r = {xAscii + j*charWidth, y, xAscii + (j+1)*charWidth, y + charHeight};
+                            FillRect(memDC, &r, CreateSolidBrush(RGB(0, 150, 255))); SetTextColor(memDC, RGB(0, 0, 0));
+                        }
+                        TextOut(memDC, xAscii + j*charWidth, y, &ch, 1);
+                        if (offset + j == editor.cursor && editor.edit_mode == 1) SetTextColor(memDC, RGB(255, 255, 0));
                     }
                 }
+                y += charHeight;
             }
+
+            // 4. Draw Bottom Status Bar
+            RECT statusRect = {0, clientRect.bottom - STATUS_HEIGHT, clientRect.right, clientRect.bottom};
+            FillRect(memDC, &statusRect, CreateSolidBrush(RGB(40, 40, 40)));
+            SetTextColor(memDC, RGB(180, 180, 180)); char statusStr[256];
+            sprintf(statusStr, " Size: %llu | Off: %08llX | Mode: %s | Layout: %s | BPR: %d | Dirty: %llu", 
+                (unsigned long long)editor.file_size, (unsigned long long)editor.cursor,
+                editor.edit_mode == 0 ? "HEX" : "TEXT", 
+                editor.view_layout == 0 ? "HEX+TXT" : "TXT ONLY",
+                editor.bytes_per_row, (unsigned long long)editor.tracker.count);
+            TextOut(memDC, 10, clientRect.bottom - 18, statusStr, (int)strlen(statusStr));
+
+            BitBlt(hdc, 0, 0, clientRect.right, clientRect.bottom, memDC, 0, 0, SRCCOPY);
+            SelectObject(memDC, oldBmp); DeleteObject(memBmp); DeleteDC(memDC); EndPaint(hwnd, &ps);
             break;
+        }
+
+        case WM_LBUTTONDOWN: {
+            int xPos = LOWORD(lParam); int yPos = HIWORD(lParam);
+            
+            // Handle Top Menu Clicks or Window Dragging
+            if (yPos < MENU_HEIGHT) {
+                if (menu_visible) {
+                    if (xPos < 60) { /* Open */ OPENFILENAME ofn = {0}; char fileName[256] = {0}; ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = hwnd; ofn.lpstrFile = fileName; ofn.nMaxFile = sizeof(fileName); ofn.lpstrFilter = "All Files\0*.*\0"; ofn.Flags = OFN_FILEMUSTEXIST; if(GetOpenFileName(&ofn)) { cleanup_editor(&editor); init_file(&editor, fileName); editor.cursor=0; editor.view_offset=0; } }
+                    else if (xPos < 120) { save_dirty(&editor.tracker, editor.fp); } /* Save */
+                    else if (xPos < 180) { editor.edit_mode = 1 - editor.edit_mode; hex_state = 0; } /* Mode */
+                    else if (xPos < 240) { int bprs[] = {8, 16, 24, 32, 48}; int idx = 0; for(int k=0; k<5; k++) if(bprs[k] == editor.bytes_per_row) idx = k; editor.bytes_per_row = bprs[(idx+1)%5]; } /* BPR */
+                    else if (xPos < 300) { editor.view_layout = 1 - editor.view_layout; } /* View Layout Toggle */
+                    else if (xPos < 360) { DestroyWindow(hwnd); } /* Exit */
+                    else { ReleaseCapture(); SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); } /* Drag empty space */
+                } else {
+                    ReleaseCapture(); SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); /* Drag when menu hidden */
+                }
+                InvalidateRect(hwnd, NULL, TRUE); return 0;
+            }
+
+            // Handle Hex/ASCII Grid Clicks (Dynamic Layout Hit-Testing)
+            int row = (yPos - MENU_HEIGHT) / charHeight;
+            size_t offset = editor.view_offset + (row * bpr);
+            int xHex = 10 * charWidth; 
+            int xAscii = (editor.view_layout == 0) ? (xHex + (bpr * 3 + 2) * charWidth) : xHex;
+            int col = -1;
+
+            if (editor.view_layout == 0 && xPos >= xHex && xPos < xAscii - 2*charWidth) { 
+                col = (xPos - xHex) / (3 * charWidth); editor.edit_mode = 0; 
+            } else if (xPos >= xAscii) { 
+                col = (xPos - xAscii) / charWidth; editor.edit_mode = 1; 
+            }
+
+            if (col >= 0 && col < bpr && offset + col < editor.file_size) { editor.cursor = offset + col; InvalidateRect(hwnd, NULL, TRUE); }
+            break;
+        }
+
+        case WM_DROPFILES: {
+            HDROP hDrop = (HDROP)wParam; char filePath[MAX_PATH];
+            DragQueryFile(hDrop, 0, filePath, MAX_PATH);
+            cleanup_editor(&editor); init_file(&editor, filePath);
+            editor.cursor = 0; editor.view_offset = 0; DragFinish(hDrop);
+            InvalidateRect(hwnd, NULL, TRUE); break;
+        }
+
+        case WM_KEYDOWN:
+            switch (wParam) {
+                case VK_UP: if (editor.cursor >= (size_t)bpr) editor.cursor -= bpr; break;
+                case VK_DOWN: if (editor.cursor + bpr < editor.file_size) editor.cursor += bpr; break;
+                case VK_LEFT: if (editor.cursor > 0) editor.cursor--; break;
+                case VK_RIGHT: if (editor.cursor + 1 < editor.file_size) editor.cursor++; break;
+                case VK_PRIOR: if (editor.cursor >= (size_t)(bpr * visibleRows)) editor.cursor -= bpr * visibleRows; else editor.cursor = 0; break;
+                case VK_NEXT: if (editor.cursor + bpr * visibleRows < editor.file_size) editor.cursor += bpr * visibleRows; else editor.cursor = editor.file_size - 1; break;
+                case VK_F2: save_dirty(&editor.tracker, editor.fp); break;
+                case VK_F4: editor.view_layout = 1 - editor.view_layout; break; // Toggle Layout
+            }
+            size_t cursor_row = editor.cursor / bpr; size_t view_start_row = editor.view_offset / bpr;
+            if (cursor_row < view_start_row) editor.view_offset = cursor_row * bpr;
+            else if (cursor_row >= view_start_row + (size_t)visibleRows) editor.view_offset = (cursor_row - visibleRows + 1) * bpr;
+            InvalidateRect(hwnd, NULL, TRUE); break;
+
+        case WM_CHAR:
+            if (editor.file_size > 0) {
+                if (editor.edit_mode == 0) {
+                    int val = -1; char c = (char)wParam;
+                    if (c >= '0' && c <= '9') val = c - '0'; else if (c >= 'a' && c <= 'f') val = c - 'a' + 10; else if (c >= 'A' && c <= 'F') val = c - 'A' + 10;
+                    if (val != -1) {
+                        if (hex_state == 0) { temp_hex = (uint8_t)(val << 4); hex_state = 1; }
+                        else { set_byte(&editor, editor.cursor, temp_hex | (uint8_t)val); hex_state = 0; if (editor.cursor + 1 < editor.file_size) editor.cursor++; }
+                    }
+                } else { if (isprint(wParam)) { set_byte(&editor, editor.cursor, (uint8_t)wParam); if (editor.cursor + 1 < editor.file_size) editor.cursor++; } }
+                InvalidateRect(hwnd, NULL, TRUE);
+            } break;
+
+        case WM_DESTROY:
+            KillTimer(hwnd, 1); cleanup_editor(&editor); DeleteObject(hFont); PostQuitMessage(0); break;
     }
-    
-    /* Update viewport */
-    int max_rows = LINES - 2;
-    size_t cursor_row = ed->cursor / bpr;
-    size_t view_start_row = ed->view_offset / bpr;
-    if (cursor_row < view_start_row) {
-        ed->view_offset = cursor_row * bpr;
-    } else if (cursor_row >= view_start_row + (size_t)max_rows) {
-        ed->view_offset = (cursor_row - max_rows + 1) * bpr;
-    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
 /* ========================================================================
- * Main Execution
+ * Application Entry Point
  * ======================================================================== */
 
-int main(int argc, char *argv[]) {
-    if (argc != 2) { fprintf(stderr, "Usage: %s <filename>\n", argv[0]); return 1; }
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    WNDCLASSEX wc = {0}; wc.cbSize = sizeof(WNDCLASSEX); wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = WndProc; wc.hInstance = hInstance; wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = CreateSolidBrush(RGB(30, 30, 30)); wc.lpszClassName = "HexEditorClass";
+    RegisterClassEx(&wc);
 
-    HexEditor editor = {0};
+    HWND hwnd = CreateWindowEx(WS_EX_ACCEPTFILES, "HexEditorClass", "Hex Editor",
+                               WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, 1000, 700,
+                               NULL, NULL, hInstance, NULL);
+
     editor.bytes_per_row = 16;
-    if (init_file(&editor, argv[1]) != 0) { fprintf(stderr, "Error opening file\n"); return 1; }
+    editor.view_layout = 0; // Default to Offset + Hex + ASCII
+    if (__argc > 1) init_file(&editor, __argv[1]);
+    else init_file(&editor, "untitled.bin");
 
-    initscr(); start_color(); use_default_colors();
-    init_pair(1, COLOR_CYAN, COLOR_BLACK);
-    init_pair(2, COLOR_GREEN, COLOR_BLACK);
-    init_pair(3, COLOR_YELLOW, COLOR_BLACK);
-    init_pair(4, COLOR_BLACK, COLOR_CYAN); /* Cursor highlight */
-    
-    raw(); keypad(stdscr, TRUE); noecho(); curs_set(0);
+    ShowWindow(hwnd, nCmdShow); UpdateWindow(hwnd);
 
-    while (1) { draw_screen(&editor); handle_input(&editor); }
-    return 0;
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0)) { TranslateMessage(&msg); DispatchMessage(&msg); }
+    return (int)msg.wParam;
 }
