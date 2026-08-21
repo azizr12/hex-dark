@@ -3,11 +3,9 @@ name: Build and Release Hex Editor
 on:
   push:
     branches: [ "main", "master" ]
-    # CRITICAL: Only trigger this workflow when the VERSION file is modified
     paths:
       - 'VERSION'
 
-# CRITICAL: Grant permission to create Releases and Tags
 permissions:
   contents: write
 
@@ -24,11 +22,12 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    # Extract the version string from the root VERSION file
+    # FIX: Added 'shell: bash' to bypass the MSYS2 requirement for this step.
+    # Git Bash is natively available on the windows-latest runner.
     - name: Read Version from File
       id: get_version
+      shell: bash
       run: |
-        # Read the file, strip any hidden carriage returns or spaces
         VERSION=$(cat VERSION | tr -d '[:space:]')
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "Detected version: $VERSION"
@@ -48,12 +47,8 @@ jobs:
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        # Use the version extracted from the file to tag the release
         tag_name: v${{ steps.get_version.outputs.version }}
         name: Hex Editor v${{ steps.get_version.outputs.version }}
-        # Attach the compiled executable to the release
         files: hexedit.exe
-        # Automatically generate release notes from recent commits
         generate_release_notes: true
-        # If the tag already exists, update it instead of failing
         make_latest: true
