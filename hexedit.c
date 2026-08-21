@@ -8,7 +8,7 @@
 #include <ctype.h>
 
 /* ========================================================================
- * Core Data Structures & File I/O (Unchanged RAM-Only Engine)
+ * Core Data Structures & File I/O (RAM-Only Engine)
  * ======================================================================== */
 
 #define WINDOW_SIZE 4096
@@ -198,15 +198,34 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // Handle Top Menu Clicks or Window Dragging
             if (yPos < MENU_HEIGHT) {
                 if (menu_visible) {
-                    if (xPos < 60) { /* Open */ OPENFILENAME ofn = {0}; char fileName[256] = {0}; ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = hwnd; ofn.lpstrFile = fileName; ofn.nMaxFile = sizeof(fileName); ofn.lpstrFilter = "All Files\0*.*\0"; ofn.Flags = OFN_FILEMUSTEXIST; if(GetOpenFileName(&ofn)) { cleanup_editor(&editor); init_file(&editor, fileName); editor.cursor=0; editor.view_offset=0; } }
-                    else if (xPos < 120) { save_dirty(&editor.tracker, editor.fp); } /* Save */
-                    else if (xPos < 180) { editor.edit_mode = 1 - editor.edit_mode; hex_state = 0; } /* Mode */
-                    else if (xPos < 240) { int bprs[] = {8, 16, 24, 32, 48}; int idx = 0; for(int k=0; k<5; k++) if(bprs[k] == editor.bytes_per_row) idx = k; editor.bytes_per_row = bprs[(idx+1)%5]; } /* BPR */
-                    else if (xPos < 300) { editor.view_layout = 1 - editor.view_layout; } /* View Layout Toggle */
-                    else if (xPos < 360) { DestroyWindow(hwnd); } /* Exit */
-                    else { ReleaseCapture(); SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); } /* Drag empty space */
+                    // Use character-width blocks for robust, resolution-independent hit detection
+                    int block = xPos / (8 * charWidth); 
+                    switch (block) {
+                        case 0: { // Open
+                            OPENFILENAME ofn = {0}; char fileName[256] = {0}; 
+                            ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = hwnd; 
+                            ofn.lpstrFile = fileName; ofn.nMaxFile = sizeof(fileName); 
+                            ofn.lpstrFilter = "All Files\0*.*\0"; ofn.Flags = OFN_FILEMUSTEXIST; 
+                            if (GetOpenFileName(&ofn)) { 
+                                cleanup_editor(&editor); init_file(&editor, fileName); 
+                                editor.cursor = 0; editor.view_offset = 0; 
+                            }
+                            break;
+                        }
+                        case 1: save_dirty(&editor.tracker, editor.fp); break; // Save
+                        case 2: editor.edit_mode = 1 - editor.edit_mode; hex_state = 0; break; // Mode
+                        case 3: { // BPR
+                            int bprs[] = {8, 16, 24, 32, 48}; int idx = 0; 
+                            for(int k=0; k<5; k++) if(bprs[k] == editor.bytes_per_row) idx = k; 
+                            editor.bytes_per_row = bprs[(idx+1)%5]; 
+                            break;
+                        }
+                        case 4: editor.view_layout = 1 - editor.view_layout; break; // View
+                        case 5: DestroyWindow(hwnd); break; // Exit
+                        default: ReleaseCapture(); SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); break; // Drag
+                    }
                 } else {
-                    ReleaseCapture(); SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); /* Drag when menu hidden */
+                    ReleaseCapture(); SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); // Drag when menu hidden
                 }
                 InvalidateRect(hwnd, NULL, TRUE); return 0;
             }
@@ -224,7 +243,36 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 col = (xPos - xAscii) / charWidth; editor.edit_mode = 1; 
             }
 
-            if (col >= 0 && col < bpr && offset + col < editor.file_size) { editor.cursor = offset + col; InvalidateRect(hwnd, NULL, TRUE); }
+            if (col >= 0 && col < bpr && offset + col < editor.file_size) { 
+                editor.cursor = offset + col; 
+                InvalidateRect(hwnd, NULL, TRUE); 
+            }
+            break;
+        }
+
+        case WM_MOUSEWHEEL: {
+            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            int rows = abs(delta) / WHEEL_DELTA;
+            size_t scrollAmount = (size_t)rows * bpr;
+
+            if (delta > 0) { // Scroll Up
+                if (editor.view_offset >= scrollAmount) {
+                    editor.view_offset -= scrollAmount;
+                } else {
+                    editor.view_offset = 0;
+                }
+            } else { // Scroll Down
+                editor.view_offset += scrollAmount;
+                if (editor.file_size > 0) {
+                    size_t maxValidOffset = ((editor.file_size - 1) / bpr) * bpr;
+                    if (editor.view_offset > maxValidOffset) {
+                        editor.view_offset = maxValidOffset;
+                    }
+                } else {
+                    editor.view_offset = 0;
+                }
+            }
+            InvalidateRect(hwnd, NULL, TRUE);
             break;
         }
 
