@@ -1,5 +1,6 @@
 #define _WIN32_WINNT 0x0600
 #include <windows.h>
+#include <windowsx.h>
 #include <commdlg.h>
 #include <shellapi.h>
 #include <stdint.h>
