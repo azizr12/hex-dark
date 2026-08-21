@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = -O2 -Wall -Wextra -std=c11
-# Force static linking to create a standalone executable without DLL dependencies
+# Add -DNCURSES_STATIC to disable DLL import expectations
+CFLAGS = -O2 -Wall -Wextra -std=c11 -DNCURSES_STATIC
 LDFLAGS = -static
 
 NCURSES_CFLAGS = $(shell pkg-config --cflags ncursesw 2>/dev/null || pkg-config --cflags ncurses 2>/dev/null)
