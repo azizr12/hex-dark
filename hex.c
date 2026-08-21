@@ -15,8 +15,8 @@ void init_tracker(DirtyTracker *t, size_t initial_cap)
 {
     if (initial_cap < 64) initial_cap = 64;
     t->capacity = initial_cap;
-    t->count    = 0;
-    t->items    = (DirtyByte *)malloc(t->capacity * sizeof(DirtyByte));
+    t->count = 0;
+    t->items = (DirtyByte *)malloc(t->capacity * sizeof(DirtyByte));
 }
 
 void load_window(HexEditor *ed, size_t target_offset)
@@ -40,7 +40,6 @@ uint8_t get_byte(HexEditor *ed, size_t offset)
 {
     if (ed->memory_mode)
         return (offset < ed->mem_size) ? ed->mem_buffer[offset] : 0;
-
     if (offset >= ed->file_size) return 0;
 
     for (size_t i = 0; i < ed->tracker.count; i++)
@@ -51,9 +50,11 @@ uint8_t get_byte(HexEditor *ed, size_t offset)
         offset >= ed->window_start + ed->window_len)
         load_window(ed, offset);
 
-    return (offset >= ed->window_start &&
-            offset < ed->window_start + ed->window_len)
-               ? ed->window[offset - ed->window_start] : 0;
+    if (offset < ed->window_start ||
+        offset >= ed->window_start + ed->window_len)
+        return 0;
+
+    return ed->window[offset - ed->window_start];
 }
 
 void set_byte(HexEditor *ed, size_t offset, uint8_t value)
@@ -84,7 +85,7 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value)
     }
 
     if (offset >= ed->file_size) {
-        /* Extend the physical file immediately, preserving v1.0.9 behavior. */
+        /* Preserve v1.0.9's immediate-extension behavior for now. */
         if (seek64(ed->fp, offset) != 0) return;
         if (fwrite(&value, 1, 1, ed->fp) != 1) return;
         fflush(ed->fp);
@@ -96,7 +97,7 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value)
                 ed->tracker.items,
                 ed->tracker.capacity * sizeof(DirtyByte));
         }
-        ed->tracker.items[ed->tracker.count].offset   = offset;
+        ed->tracker.items[ed->tracker.count].offset = offset;
         ed->tracker.items[ed->tracker.count].original = 0;
         ed->tracker.items[ed->tracker.count].modified = value;
         ed->tracker.count++;
@@ -126,7 +127,7 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value)
             ed->tracker.items,
             ed->tracker.capacity * sizeof(DirtyByte));
     }
-    ed->tracker.items[ed->tracker.count].offset   = offset;
+    ed->tracker.items[ed->tracker.count].offset = offset;
     ed->tracker.items[ed->tracker.count].original = true_orig;
     ed->tracker.items[ed->tracker.count].modified = value;
     ed->tracker.count++;
@@ -135,7 +136,6 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value)
 int save_dirty(HexEditor *ed)
 {
     if (ed->memory_mode) return -1;
-
     for (size_t i = 0; i < ed->tracker.count; i++) {
         if (seek64(ed->fp, ed->tracker.items[i].offset) != 0)
             return -1;
@@ -154,20 +154,14 @@ int init_file(HexEditor *ed, const char *filename)
         ed->fp = fopen(filename, "w+b");
         if (!ed->fp) return -1;
     }
-    if (seek64(ed->fp, 0) != 0) {
+
+    if (_fseeki64(ed->fp, 0, SEEK_END) != 0) {
         fclose(ed->fp);
         ed->fp = NULL;
         return -1;
     }
-    if (seek64(ed->fp, (size_t)-1) != 0) {
-        /* Seek-to-end explicitly; the SIZE_MAX sentinel is not a valid offset. */
-        if (_fseeki64(ed->fp, 0, SEEK_END) != 0) {
-            fclose(ed->fp);
-            ed->fp = NULL;
-            return -1;
-        }
-    }
     ed->file_size = tell64(ed->fp);
+
     if (seek64(ed->fp, 0) != 0) {
         fclose(ed->fp);
         ed->fp = NULL;
@@ -177,13 +171,13 @@ int init_file(HexEditor *ed, const char *filename)
     strncpy(ed->filename, filename, MAX_PATH_LEN - 1);
     ed->filename[MAX_PATH_LEN - 1] = '\0';
 
-    ed->memory_mode   = 0;
-    ed->cursor        = 0;
-    ed->view_offset   = 0;
-    ed->window_start  = 0;
-    ed->window_len    = 0;
+    ed->memory_mode = 0;
+    ed->cursor = 0;
+    ed->view_offset = 0;
+    ed->window_start = 0;
+    ed->window_len = 0;
     ed->selection_start = (size_t)-1;
-    ed->selection_end   = (size_t)-1;
+    ed->selection_end = (size_t)-1;
     ed->selection_origin = SELECTION_NONE;
 
     init_tracker(&ed->tracker, DEFAULT_TRACKER_CAP);
@@ -193,18 +187,18 @@ int init_file(HexEditor *ed, const char *filename)
 void init_memory_mode(HexEditor *ed)
 {
     memset(ed, 0, sizeof(*ed));
-    ed->memory_mode     = 1;
-    ed->mem_capacity    = 4096;
-    ed->mem_size        = 0;
-    ed->mem_buffer      = (uint8_t *)calloc(ed->mem_capacity, 1);
-    ed->bytes_per_row   = 16;
-    ed->edit_mode       = 0;
-    ed->view_layout     = 0;
-    ed->readonly_mode   = 0;
-    ed->cursor          = 0;
-    ed->view_offset     = 0;
+    ed->memory_mode = 1;
+    ed->mem_capacity = 4096;
+    ed->mem_size = 0;
+    ed->mem_buffer = (uint8_t *)calloc(ed->mem_capacity, 1);
+    ed->bytes_per_row = 16;
+    ed->edit_mode = 0;
+    ed->view_layout = 0;
+    ed->readonly_mode = 0;
+    ed->cursor = 0;
+    ed->view_offset = 0;
     ed->selection_start = (size_t)-1;
-    ed->selection_end   = (size_t)-1;
+    ed->selection_end = (size_t)-1;
     ed->selection_origin = SELECTION_NONE;
     strncpy(ed->filename, "untitled.bin", MAX_PATH_LEN - 1);
     init_tracker(&ed->tracker, DEFAULT_TRACKER_CAP);
@@ -222,14 +216,14 @@ void cleanup_editor(HexEditor *ed)
 void clear_selection(HexEditor *ed)
 {
     ed->selection_start = (size_t)-1;
-    ed->selection_end   = (size_t)-1;
+    ed->selection_end = (size_t)-1;
     ed->selection_origin = SELECTION_NONE;
 }
 
 int has_selection(HexEditor *ed)
 {
     return (ed->selection_start != (size_t)-1 &&
-            ed->selection_end   != (size_t)-1);
+            ed->selection_end != (size_t)-1);
 }
 
 size_t sel_min(HexEditor *ed)
