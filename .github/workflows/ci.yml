@@ -31,7 +31,7 @@ jobs:
           mingw-w64-x86_64-pkg-config
           make
 
-    - name: Build Project
+    - name: Build Project and Plugin
       run: |
         mingw32-make all
 
@@ -39,9 +39,11 @@ jobs:
       run: |
         mingw32-make test
 
-    - name: Upload Build Artifact
+    - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: hexedit-windows-x64
-        path: hexedit.exe
+        path: |
+          hexedit.exe
+          hexedit_plugin.dll
         retention-days: 7
