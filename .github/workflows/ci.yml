@@ -1,4 +1,4 @@
-name: Windows C Hex Editor CI
+name: Windows GUI Hex Editor CI
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-windows:
-    name: Build and Test on Windows (MSYS2/MinGW-w64)
+    name: Build Windows GUI Hex Editor
     runs-on: windows-latest
     
     defaults:
@@ -26,31 +26,15 @@ jobs:
         install: >-
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-make
-          mingw-w64-x86_64-ncurses
-          mingw-w64-x86_64-pkg-config
           make
 
-    - name: Build Project and Plugin
+    - name: Build Project
       run: |
         mingw32-make all
 
-    - name: Run Sanity Tests
-      run: |
-        mingw32-make test
-
-    - name: Bundle Required DLLs (For Dynamic Linking Fallback)
-      run: |
-        # Copy essential MinGW runtime and ncurses DLLs to the working directory
-        cp /mingw64/bin/libncursesw6.dll . || true
-        cp /mingw64/bin/libwinpthread-1.dll . || true
-        cp /mingw64/bin/libgcc_s_seh-1.dll . || true
-
-    - name: Upload Build Artifacts
+    - name: Upload Build Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: hexedit-windows-x64
-        path: |
-          hexedit.exe
-          hexedit_plugin.dll
-          *.dll
+        name: hexedit-gui-windows-x64
+        path: hexedit.exe
         retention-days: 7
