@@ -15,6 +15,48 @@
 #include "hex.h"
 
 /* ================================================================== */
+/*  Dark mode support (undocumented uxtheme.dll ordinals)              */
+/*  SetWindowTheme(..., L"DarkMode_Explorer", ...) alone is not always */
+/*  enough to make a stand-alone SCROLLBAR control render dark; the    */
+/*  process also needs to register itself as "dark mode aware" first. */
+/* ================================================================== */
+
+typedef BOOL (WINAPI *SetPreferredAppModeFn)(int);
+typedef BOOL (WINAPI *AllowDarkModeForWindowFn)(HWND, BOOL);
+typedef VOID (WINAPI *RefreshImmersiveColorPolicyStateFn)(void);
+
+static void EnableDarkModeForApp(void)
+{
+    HMODULE hUx = LoadLibraryA("uxtheme.dll");
+    if (!hUx)
+        return;
+
+    SetPreferredAppModeFn pSetPreferredAppMode =
+        (SetPreferredAppModeFn)GetProcAddress(hUx, MAKEINTRESOURCEA(135));
+    RefreshImmersiveColorPolicyStateFn pRefreshImmersiveColorPolicyState =
+        (RefreshImmersiveColorPolicyStateFn)GetProcAddress(hUx, MAKEINTRESOURCEA(104));
+
+    if (pSetPreferredAppMode)
+        pSetPreferredAppMode(1 /* AllowDark */);
+
+    if (pRefreshImmersiveColorPolicyState)
+        pRefreshImmersiveColorPolicyState();
+}
+
+static void EnableDarkModeForWindow(HWND hwnd)
+{
+    HMODULE hUx = GetModuleHandleA("uxtheme.dll");
+    if (!hUx)
+        return;
+
+    AllowDarkModeForWindowFn pAllowDarkModeForWindow =
+        (AllowDarkModeForWindowFn)GetProcAddress(hUx, MAKEINTRESOURCEA(133));
+
+    if (pAllowDarkModeForWindow)
+        pAllowDarkModeForWindow(hwnd, TRUE);
+}
+
+/* ================================================================== */
 /*  Control IDs / Layout Constants                                     */
 /* ================================================================== */
 
@@ -73,8 +115,12 @@ static COLORREF ini_get_color(const char *sec, const char *key,
     char buf[64] = {0};
     GetPrivateProfileStringA(sec, key, "", buf, sizeof(buf), ini_path);
 
-    int r, g, b;
-    if (sscanf(buf, "%d,%d,%d", &r, &g, &b) == 3)
+    char *p = buf;
+    if (p[0] == '#')
+        p++;
+
+    unsigned int r, g, b;
+    if (strlen(p) >= 6 && sscanf(p, "%02x%02x%02x", &r, &g, &b) == 3)
         return RGB(r, g, b);
 
     return def;
@@ -82,8 +128,8 @@ static COLORREF ini_get_color(const char *sec, const char *key,
 
 static void ini_put_color(const char *sec, const char *key, COLORREF c)
 {
-    char buf[64];
-    sprintf(buf, "%d,%d,%d", GetRValue(c), GetGValue(c), GetBValue(c));
+    char buf[16];
+    sprintf(buf, "#%02X%02X%02X", GetRValue(c), GetGValue(c), GetBValue(c));
     WritePrivateProfileStringA(sec, key, buf, ini_path);
 }
 
@@ -104,7 +150,7 @@ static void generate_default_ini(void)
     ini_put_color("Colors", "hex",           RGB(0,255,0));
     ini_put_color("Colors", "ascii",         RGB(255,255,0));
     ini_put_color("Colors", "selection",     RGB(0,50,150));
-    ini_put_color("Colors", "cursor",        RGB(0,150,255));
+    ini_put_color("Colors", "cursor",        RGB(200,0,0));
     ini_put_color("Colors", "status_bg",     RGB(40,40,40));
     ini_put_color("Colors", "status_text",   RGB(180,180,180));
     ini_put_color("Colors", "readonly_btn",  RGB(0,180,0));
@@ -150,7 +196,7 @@ static void load_config(void)
     cfg.col_hex         = ini_get_color("Colors", "hex",          RGB(0,255,0));
     cfg.col_ascii       = ini_get_color("Colors", "ascii",        RGB(255,255,0));
     cfg.col_selection   = ini_get_color("Colors", "selection",    RGB(0,50,150));
-    cfg.col_cursor      = ini_get_color("Colors", "cursor",       RGB(0,150,255));
+    cfg.col_cursor      = ini_get_color("Colors", "cursor",       RGB(200,0,0));
     cfg.col_status_bg   = ini_get_color("Colors", "status_bg",    RGB(40,40,40));
     cfg.col_status_text = ini_get_color("Colors", "status_text",  RGB(180,180,180));
     cfg.col_ro_btn      = ini_get_color("Colors", "readonly_btn", RGB(0,180,0));
@@ -558,7 +604,9 @@ static void CreateVScrollBar(HWND hwnd)
     );
 
     if (g_hScroll) {
+        EnableDarkModeForWindow(g_hScroll);
         SetWindowTheme(g_hScroll, L"DarkMode_Explorer", NULL);
+        SendMessageA(g_hScroll, WM_THEMECHANGED, 0, 0);
 
         LayoutScrollBar(hwnd);
         UpdateVScroll(hwnd);
@@ -575,7 +623,6 @@ static void ClampBPRForLayout(HWND hwnd)
 
     if (editor.bytes_per_row > limit) {
         editor.bytes_per_row = limit;
-        SnapWindowSize(hwnd, visibleRows);
     }
 
     UpdateVScroll(hwnd);
@@ -605,7 +652,6 @@ static void CycleBPR(HWND hwnd)
 
     editor.bytes_per_row = next;
 
-    SnapWindowSize(hwnd, visibleRows);
     UpdateVScroll(hwnd);
     InvalidateRect(hwnd, NULL, FALSE);
 }
@@ -1003,7 +1049,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             ReleaseDC(hwnd, hdc);
         }
 
-        SnapWindowSize(hwnd, cfg.rows);
         CreateVScrollBar(hwnd);
 
         {
@@ -1640,6 +1685,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev,
     (void)hPrev;
     (void)lpCmd;
 
+    EnableDarkModeForApp();
+
     load_config();
 
     memset(&editor, 0, sizeof(editor));
@@ -1672,10 +1719,11 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev,
         WS_EX_ACCEPTFILES | WS_EX_COMPOSITED,
         "HexEditorClass",
         "Hex Editor",
-        WS_POPUP | WS_THICKFRAME,
-        CW_USEDEFAULT, CW_USEDEFAULT, 700, 1000,
+        WS_POPUP,
+        CW_USEDEFAULT, CW_USEDEFAULT, 750, 900,
         NULL, NULL, hInst, NULL);
 
+    EnableDarkModeForWindow(hwnd);
     SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);
 
     ShowWindow(hwnd, nShow);
