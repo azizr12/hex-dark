@@ -21,7 +21,7 @@ void load_window(HexEditor *ed, size_t target_offset)
     int bpr = ed->bytes_per_row;
     if (bpr < 1) bpr = 16;
     ed->window_start = (target_offset / (size_t)bpr) * (size_t)bpr;
-    fseek(ed->fp, (long)ed->window_start, SEEK_SET);
+    _fseeki64(ed->fp, (__int64)ed->window_start, SEEK_SET);
     ed->window_len = fread(ed->window, 1, WINDOW_SIZE, ed->fp);
 }
 
@@ -80,7 +80,7 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value)
     /* ---- File mode: allow extending in overwrite mode ---- */
     if (offset >= ed->file_size) {
         /* Extend the physical file immediately */
-        fseek(ed->fp, (long)offset, SEEK_SET);
+        _fseeki64(ed->fp, (__int64)offset, SEEK_SET);
         fwrite(&value, 1, 1, ed->fp);
         fflush(ed->fp);
         ed->file_size = offset + 1;
@@ -132,7 +132,7 @@ int save_dirty(HexEditor *ed)
 {
     if (ed->memory_mode) return -1;   /* GUI handles memory-mode save */
     for (size_t i = 0; i < ed->tracker.count; i++) {
-        fseek(ed->fp, (long)ed->tracker.items[i].offset, SEEK_SET);
+        _fseeki64(ed->fp, (__int64)ed->tracker.items[i].offset, SEEK_SET);
         if (fwrite(&ed->tracker.items[i].modified, 1, 1, ed->fp) != 1)
             return -1;
     }
@@ -152,9 +152,15 @@ int init_file(HexEditor *ed, const char *filename)
         ed->fp = fopen(filename, "w+b");
         if (!ed->fp) return -1;
     }
-    fseek(ed->fp, 0, SEEK_END);
-    ed->file_size = (size_t)ftell(ed->fp);
-    fseek(ed->fp, 0, SEEK_SET);
+    _fseeki64(ed->fp, 0, SEEK_END);
+    __int64 end = _ftelli64(ed->fp);
+    if (end < 0 || (uintmax_t)end > (uintmax_t)SIZE_MAX) {
+        fclose(ed->fp);
+        ed->fp = NULL;
+        return -1;
+    }
+    ed->file_size = (size_t)end;
+    _fseeki64(ed->fp, 0, SEEK_SET);
 
     strncpy(ed->filename, filename, MAX_PATH_LEN - 1);
     ed->filename[MAX_PATH_LEN - 1] = '\0';
@@ -166,6 +172,7 @@ int init_file(HexEditor *ed, const char *filename)
     ed->window_len    = 0;
     ed->selection_start = (size_t)-1;
     ed->selection_end   = (size_t)-1;
+    ed->selection_origin = SELECTION_NONE;
 
     init_tracker(&ed->tracker, DEFAULT_TRACKER_CAP);
     return 0;
@@ -186,6 +193,7 @@ void init_memory_mode(HexEditor *ed)
     ed->view_offset     = 0;
     ed->selection_start = (size_t)-1;
     ed->selection_end   = (size_t)-1;
+    ed->selection_origin = SELECTION_NONE;
     strncpy(ed->filename, "untitled.bin", MAX_PATH_LEN - 1);
     init_tracker(&ed->tracker, DEFAULT_TRACKER_CAP);
 }
@@ -207,13 +215,13 @@ void clear_selection(HexEditor *ed)
 {
     ed->selection_start = (size_t)-1;
     ed->selection_end   = (size_t)-1;
+    ed->selection_origin = SELECTION_NONE;
 }
 
 int has_selection(HexEditor *ed)
 {
     return (ed->selection_start != (size_t)-1 &&
-            ed->selection_end   != (size_t)-1 &&
-            ed->selection_start != ed->selection_end);
+            ed->selection_end   != (size_t)-1);
 }
 
 size_t sel_min(HexEditor *ed)
