@@ -11,7 +11,6 @@ jobs:
     name: Build and Test on Windows (MSYS2/MinGW-w64)
     runs-on: windows-latest
     
-    # Set default shell to MSYS2 for all steps
     defaults:
       run:
         shell: msys2 {0}
@@ -39,6 +38,13 @@ jobs:
       run: |
         mingw32-make test
 
+    - name: Bundle Required DLLs (For Dynamic Linking Fallback)
+      run: |
+        # Copy essential MinGW runtime and ncurses DLLs to the working directory
+        cp /mingw64/bin/libncursesw6.dll . || true
+        cp /mingw64/bin/libwinpthread-1.dll . || true
+        cp /mingw64/bin/libgcc_s_seh-1.dll . || true
+
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -46,4 +52,5 @@ jobs:
         path: |
           hexedit.exe
           hexedit_plugin.dll
+          *.dll
         retention-days: 7
