@@ -17,7 +17,7 @@ typedef struct { DirtyByte *items; size_t count; size_t capacity; } DirtyTracker
 
 typedef struct {
     FILE *fp; size_t file_size; size_t cursor; size_t view_offset;
-    int bytes_per_row; int edit_mode;
+    int bytes_per_row; int edit_mode; int view_layout; // 0=Hex+ASCII, 1=ASCII Only
     uint8_t window[WINDOW_SIZE]; size_t window_start; size_t window_len;
     char filename[256]; DirtyTracker tracker;
 } HexEditor;
@@ -93,7 +93,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             POINTS pts = MAKEPOINTS(lParam);
             if (pts.y < MENU_HEIGHT) {
                 if (!menu_visible) { menu_visible = TRUE; InvalidateRect(hwnd, NULL, TRUE); }
-                SetTimer(hwnd, 1, MENU_HIDE_DELAY, NULL); // Reset auto-hide timer
+                SetTimer(hwnd, 1, MENU_HIDE_DELAY, NULL); 
             }
             break;
         }
@@ -118,7 +118,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             
             if (menu_visible) {
                 SetTextColor(memDC, RGB(220, 220, 220));
-                TextOut(memDC, 15, 8, "[O]pen  [S]ave  [M]ode  [B]PR  [X]xit", 39);
+                TextOut(memDC, 15, 8, "[O]pen  [S]ave  [M]ode  [B]PR  [V]iew  [X]xit", 44);
             } else {
                 SetTextColor(memDC, RGB(100, 100, 100));
                 TextOut(memDC, 15, 8, "RAM-Only Hex Editor", 19);
@@ -126,27 +126,42 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
             // 3. Draw Hex/ASCII Grid
             int y = MENU_HEIGHT;
+            int xHex = 10 * charWidth;
+            int xAscii;
+
             for (int i = 0; i < visibleRows; i++) {
                 size_t offset = editor.view_offset + (i * bpr);
                 if (offset >= editor.file_size && editor.file_size > 0) break;
 
+                // Draw Offset (Cyan)
                 SetTextColor(memDC, RGB(0, 255, 255)); char offStr[16]; sprintf(offStr, "%08llX  ", (unsigned long long)offset);
                 TextOut(memDC, 0, y, offStr, (int)strlen(offStr));
 
-                int xHex = 10 * charWidth; SetTextColor(memDC, RGB(0, 255, 0));
-                for (int j = 0; j < bpr; j++) {
-                    if (offset + j < editor.file_size) {
-                        char hexStr[4]; sprintf(hexStr, "%02X ", get_byte(&editor, offset + j));
-                        if (offset + j == editor.cursor && editor.edit_mode == 0) {
-                            RECT r = {xHex + j*3*charWidth, y, xHex + (j+1)*3*charWidth, y + charHeight};
-                            FillRect(memDC, &r, CreateSolidBrush(RGB(0, 150, 255))); SetTextColor(memDC, RGB(0, 0, 0));
+                // Dynamic Layout Logic
+                if (editor.view_layout == 0) {
+                    // MODE 0: Offset + Hex + ASCII
+                    xAscii = xHex + (bpr * 3 + 2) * charWidth;
+                    
+                    // Draw Hex (Green)
+                    SetTextColor(memDC, RGB(0, 255, 0));
+                    for (int j = 0; j < bpr; j++) {
+                        if (offset + j < editor.file_size) {
+                            char hexStr[4]; sprintf(hexStr, "%02X ", get_byte(&editor, offset + j));
+                            if (offset + j == editor.cursor && editor.edit_mode == 0) {
+                                RECT r = {xHex + j*3*charWidth, y, xHex + (j+1)*3*charWidth, y + charHeight};
+                                FillRect(memDC, &r, CreateSolidBrush(RGB(0, 150, 255))); SetTextColor(memDC, RGB(0, 0, 0));
+                            }
+                            TextOut(memDC, xHex + j*3*charWidth, y, hexStr, 3);
+                            if (offset + j == editor.cursor && editor.edit_mode == 0) SetTextColor(memDC, RGB(0, 255, 0));
                         }
-                        TextOut(memDC, xHex + j*3*charWidth, y, hexStr, 3);
-                        if (offset + j == editor.cursor && editor.edit_mode == 0) SetTextColor(memDC, RGB(0, 255, 0));
                     }
+                } else {
+                    // MODE 1: Offset + ASCII Only
+                    xAscii = xHex; 
                 }
 
-                int xAscii = xHex + (bpr * 3 + 2) * charWidth; SetTextColor(memDC, RGB(255, 255, 0));
+                // Draw ASCII (Yellow)
+                SetTextColor(memDC, RGB(255, 255, 0));
                 for (int j = 0; j < bpr; j++) {
                     if (offset + j < editor.file_size) {
                         uint8_t c = get_byte(&editor, offset + j); char ch = isprint(c) ? (char)c : '.';
@@ -165,9 +180,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             RECT statusRect = {0, clientRect.bottom - STATUS_HEIGHT, clientRect.right, clientRect.bottom};
             FillRect(memDC, &statusRect, CreateSolidBrush(RGB(40, 40, 40)));
             SetTextColor(memDC, RGB(180, 180, 180)); char statusStr[256];
-            sprintf(statusStr, " Size: %llu | Off: %08llX | Mode: %s | BPR: %d | Dirty: %llu", 
+            sprintf(statusStr, " Size: %llu | Off: %08llX | Mode: %s | Layout: %s | BPR: %d | Dirty: %llu", 
                 (unsigned long long)editor.file_size, (unsigned long long)editor.cursor,
-                editor.edit_mode == 0 ? "HEX" : "TEXT", editor.bytes_per_row, (unsigned long long)editor.tracker.count);
+                editor.edit_mode == 0 ? "HEX" : "TEXT", 
+                editor.view_layout == 0 ? "HEX+TXT" : "TXT ONLY",
+                editor.bytes_per_row, (unsigned long long)editor.tracker.count);
             TextOut(memDC, 10, clientRect.bottom - 18, statusStr, (int)strlen(statusStr));
 
             BitBlt(hdc, 0, 0, clientRect.right, clientRect.bottom, memDC, 0, 0, SRCCOPY);
@@ -184,8 +201,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     if (xPos < 60) { /* Open */ OPENFILENAME ofn = {0}; char fileName[256] = {0}; ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = hwnd; ofn.lpstrFile = fileName; ofn.nMaxFile = sizeof(fileName); ofn.lpstrFilter = "All Files\0*.*\0"; ofn.Flags = OFN_FILEMUSTEXIST; if(GetOpenFileName(&ofn)) { cleanup_editor(&editor); init_file(&editor, fileName); editor.cursor=0; editor.view_offset=0; } }
                     else if (xPos < 120) { save_dirty(&editor.tracker, editor.fp); } /* Save */
                     else if (xPos < 180) { editor.edit_mode = 1 - editor.edit_mode; hex_state = 0; } /* Mode */
-                    else if (xPos < 230) { int bprs[] = {8, 16, 24, 32, 48}; int idx = 0; for(int k=0; k<5; k++) if(bprs[k] == editor.bytes_per_row) idx = k; editor.bytes_per_row = bprs[(idx+1)%5]; } /* BPR */
-                    else if (xPos < 280) { DestroyWindow(hwnd); } /* Exit */
+                    else if (xPos < 240) { int bprs[] = {8, 16, 24, 32, 48}; int idx = 0; for(int k=0; k<5; k++) if(bprs[k] == editor.bytes_per_row) idx = k; editor.bytes_per_row = bprs[(idx+1)%5]; } /* BPR */
+                    else if (xPos < 300) { editor.view_layout = 1 - editor.view_layout; } /* View Layout Toggle */
+                    else if (xPos < 360) { DestroyWindow(hwnd); } /* Exit */
                     else { ReleaseCapture(); SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); } /* Drag empty space */
                 } else {
                     ReleaseCapture(); SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0); /* Drag when menu hidden */
@@ -193,13 +211,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 InvalidateRect(hwnd, NULL, TRUE); return 0;
             }
 
-            // Handle Hex/ASCII Grid Clicks
+            // Handle Hex/ASCII Grid Clicks (Dynamic Layout Hit-Testing)
             int row = (yPos - MENU_HEIGHT) / charHeight;
             size_t offset = editor.view_offset + (row * bpr);
-            int xHex = 10 * charWidth; int xAscii = xHex + (bpr * 3 + 2) * charWidth; int col = -1;
+            int xHex = 10 * charWidth; 
+            int xAscii = (editor.view_layout == 0) ? (xHex + (bpr * 3 + 2) * charWidth) : xHex;
+            int col = -1;
 
-            if (xPos >= xHex && xPos < xAscii - 2*charWidth) { col = (xPos - xHex) / (3 * charWidth); editor.edit_mode = 0; }
-            else if (xPos >= xAscii) { col = (xPos - xAscii) / charWidth; editor.edit_mode = 1; }
+            if (editor.view_layout == 0 && xPos >= xHex && xPos < xAscii - 2*charWidth) { 
+                col = (xPos - xHex) / (3 * charWidth); editor.edit_mode = 0; 
+            } else if (xPos >= xAscii) { 
+                col = (xPos - xAscii) / charWidth; editor.edit_mode = 1; 
+            }
 
             if (col >= 0 && col < bpr && offset + col < editor.file_size) { editor.cursor = offset + col; InvalidateRect(hwnd, NULL, TRUE); }
             break;
@@ -222,6 +245,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 case VK_PRIOR: if (editor.cursor >= (size_t)(bpr * visibleRows)) editor.cursor -= bpr * visibleRows; else editor.cursor = 0; break;
                 case VK_NEXT: if (editor.cursor + bpr * visibleRows < editor.file_size) editor.cursor += bpr * visibleRows; else editor.cursor = editor.file_size - 1; break;
                 case VK_F2: save_dirty(&editor.tracker, editor.fp); break;
+                case VK_F4: editor.view_layout = 1 - editor.view_layout; break; // Toggle Layout
             }
             size_t cursor_row = editor.cursor / bpr; size_t view_start_row = editor.view_offset / bpr;
             if (cursor_row < view_start_row) editor.view_offset = cursor_row * bpr;
@@ -257,12 +281,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wc.hbrBackground = CreateSolidBrush(RGB(30, 30, 30)); wc.lpszClassName = "HexEditorClass";
     RegisterClassEx(&wc);
 
-    // WS_POPUP creates a strictly borderless window
     HWND hwnd = CreateWindowEx(WS_EX_ACCEPTFILES, "HexEditorClass", "Hex Editor",
                                WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, 1000, 700,
                                NULL, NULL, hInstance, NULL);
 
     editor.bytes_per_row = 16;
+    editor.view_layout = 0; // Default to Offset + Hex + ASCII
     if (__argc > 1) init_file(&editor, __argv[1]);
     else init_file(&editor, "untitled.bin");
 
