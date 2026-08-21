@@ -1,7 +1,7 @@
 CC = gcc
-# -mwindows hides the console window. -lcomdlg32 is for the Open File dialog.
 CFLAGS = -O2 -Wall -Wextra -std=c11 -mwindows
-LDFLAGS = -mwindows -lcomdlg32
+# -lcomdlg32 for Open Dialog, -lshell32 for Drag and Drop
+LDFLAGS = -mwindows -lcomdlg32 -lshell32
 
 .PHONY: all clean
 
