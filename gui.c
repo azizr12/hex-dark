@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <windowsx.h>
+#include <uxtheme.h>
 #include <commdlg.h>
 #include <shellapi.h>
 #include <stdint.h>
@@ -557,6 +558,8 @@ static void CreateVScrollBar(HWND hwnd)
     );
 
     if (g_hScroll) {
+        SetWindowTheme(g_hScroll, L"DarkMode_Explorer", NULL);
+
         LayoutScrollBar(hwnd);
         UpdateVScroll(hwnd);
     }
@@ -1155,8 +1158,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         break;
 
                     int isSel = selActive && off >= sLo && off <= sHi;
-                    int isCur = (off == editor.cursor &&
-                                 editor.edit_mode == 0);
+                    int isCur = (off == editor.cursor);
 
                     if (isSel) {
                         RECT r = {
@@ -1204,7 +1206,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     break;
 
                 int isSel = selActive && off >= sLo && off <= sHi;
-                int isCur = (off == editor.cursor && editor.edit_mode == 1);
+                int isCur = (off == editor.cursor);
 
                 if (isSel) {
                     RECT r = {
@@ -1671,8 +1673,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev,
         "HexEditorClass",
         "Hex Editor",
         WS_POPUP | WS_THICKFRAME,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1000, 700,
+        CW_USEDEFAULT, CW_USEDEFAULT, 700, 1000,
         NULL, NULL, hInst, NULL);
+
+    SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);
 
     ShowWindow(hwnd, nShow);
     UpdateWindow(hwnd);
