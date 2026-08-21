@@ -10,6 +10,7 @@
 #include "ui.h"
 #include "features.h"
 #include "window_fix.h"
+#include "selection_fix.h"
 
 HexEditor editor;
 int hex_state = 0;
@@ -84,6 +85,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow) {
         FeaturesInstall(hwnd);
         FeaturesApplyDarkScrollbar(hwnd);
         WindowFixInstall(hwnd);
+        SelectionFixInstall(hwnd);
         ShowWindow(hwnd, nShow);
         UpdateWindow(hwnd);
     }
