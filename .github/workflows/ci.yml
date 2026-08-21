@@ -3,8 +3,6 @@ name: Build and Release Hex Editor
 on:
   push:
     branches: [ "main", "master" ]
-    paths:
-      - 'VERSION'
 
 permissions:
   contents: write
@@ -21,10 +19,21 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
+      with:
+        # fetch-depth: 0 is required for the paths-filter action to accurately 
+        # detect changes when multiple commits are pushed simultaneously.
+        fetch-depth: 0
 
-    # FIX: Added 'shell: bash' to bypass the MSYS2 requirement for this step.
-    # Git Bash is natively available on the windows-latest runner.
+    - name: Detect VERSION File Changes
+      id: check_version
+      uses: dorny/paths-filter@v3
+      with:
+        filters: |
+          version:
+            - 'VERSION'
+
     - name: Read Version from File
+      if: steps.check_version.outputs.version == 'true'
       id: get_version
       shell: bash
       run: |
@@ -45,6 +54,7 @@ jobs:
       run: mingw32-make all
 
     - name: Create GitHub Release
+      if: steps.check_version.outputs.version == 'true'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ steps.get_version.outputs.version }}
