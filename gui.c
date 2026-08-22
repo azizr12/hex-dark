@@ -826,29 +826,14 @@ static void OnSize(HWND hwnd, int cx, int cy)
 /* Bytes-per-row                                                       */
 /* ================================================================== */
 
-static void ClampBPRForLayout(HWND hwnd)
-{
-    int limit =
-        editor.view_layout == 1
-            ? 48 * 4
-            : 48;
-
+static void ClampBPRForLayout(HWND hwnd) {
+    int limit = editor.view_layout == 1 ? 48 * 4 : 48;
     if (editor.bytes_per_row > limit) {
         editor.bytes_per_row = limit;
-
-        SnapWindowSize(
-            hwnd,
-            visibleRows
-        );
+        SnapWindowSize(hwnd, visibleRows);
     }
-
-    UpdateVScroll(hwnd);
-
-    InvalidateRect(
-        hwnd,
-        NULL,
-        FALSE
-    );
+    ClampViewOffset(); // Replaced UpdateVScroll
+    InvalidateRect(hwnd, NULL, FALSE);
 }
 
 static void CycleBPR(HWND hwnd)
@@ -902,7 +887,7 @@ static void CycleBPR(HWND hwnd)
         visibleRows
     );
 
-    UpdateVScroll(hwnd);
+    ClampViewOffset();
 
     InvalidateRect(
         hwnd,
@@ -1091,7 +1076,7 @@ static void PasteFromClipboard(HWND hwnd) {
     editor.cursor = paste_offset + byteCount;
     clear_selection(&editor);
     EnsureCursorVisible();
-    UpdateVScroll(hwnd);
+    ClampViewOffset();
     InvalidateRect(hwnd, NULL, FALSE);
     
     free(bytes);
@@ -1599,7 +1584,6 @@ LRESULT CALLBACK WndProc(
                 cfg.rows
             );
 
-            CreateVScrollBar(hwnd);
 
             RECT current;
 
@@ -1633,12 +1617,6 @@ LRESULT CALLBACK WndProc(
             break;
 
         case WM_VSCROLL:
-
-            HandleVScroll(
-                hwnd,
-                wParam,
-                lParam
-            );
 
             break;
 
@@ -2309,17 +2287,7 @@ LRESULT CALLBACK WndProc(
                 &ps
             );
 
-            DeleteDC(
-                memoryDC
-            );
-
-            EndPaint(
-                hwnd,
-                &ps
-            );
-
             break;
-        }
 
         /* ========================================================== */
         /* Mouse                                                       */
@@ -2535,7 +2503,7 @@ LRESULT CALLBACK WndProc(
             if (ctrl && wParam == 'Z') {
                 undo(&editor);
                 EnsureCursorVisible();
-                UpdateVScroll(hwnd);
+                ClampViewOffset();
                 InvalidateRect(hwnd, NULL, FALSE);
                 break;
             }
@@ -2543,7 +2511,7 @@ LRESULT CALLBACK WndProc(
             if (ctrl && wParam == 'Y') {
                 redo(&editor);
                 EnsureCursorVisible();
-                UpdateVScroll(hwnd);
+                ClampViewOffset();
                 InvalidateRect(hwnd, NULL, FALSE);
                 break;
             }
@@ -2744,7 +2712,7 @@ LRESULT CALLBACK WndProc(
             }
 
             EnsureCursorVisible();
-            UpdateVScroll(hwnd);
+            ClampViewOffset();
 
             InvalidateRect(
                 hwnd,
@@ -2843,7 +2811,7 @@ LRESULT CALLBACK WndProc(
                         }
 
                         EnsureCursorVisible();
-                        UpdateVScroll(hwnd);
+                        ClampViewOffset();
 
                         InvalidateRect(
                             hwnd,
@@ -2883,7 +2851,7 @@ LRESULT CALLBACK WndProc(
                     }
 
                     EnsureCursorVisible();
-                    UpdateVScroll(hwnd);
+                    ClampViewOffset();
 
                     InvalidateRect(
                         hwnd,
