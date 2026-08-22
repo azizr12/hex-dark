@@ -1103,7 +1103,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     }
 
                     uint8_t byte = get_byte(&editor, current);
-                    char character = (char)translate_byte(byte);
+                    char character;
+                    
+                    /* Ensure the byte is a standard printable ASCII character */
+                    if (byte >= 32 && byte <= 126) {
+                        /* If printable, apply the plugin transformation (ROT13) */
+                        character = (char)translate_byte(byte);
+                    } else {
+                        /* If unprintable, force it to a dot to protect the UI */
+                        character = '.';
+                    }
 
                     if (cursor) {
                         RECT cursorRect = { xAscii + column * charWidth, y, xAscii + (column + 1) * charWidth, y + charHeight };

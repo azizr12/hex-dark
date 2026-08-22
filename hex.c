@@ -397,38 +397,3 @@ size_t sel_max(HexEditor *ed) {
     if (!has_selection(ed)) return (size_t)-1;
     return ed->selection_start > ed->selection_end ? ed->selection_start : ed->selection_end;
 }
-
-/* ================================================================== */
-/*  Syntax Highlighting & Byte Translation                            */
-/* ================================================================== */
-
-uint8_t translate_byte(uint8_t b) {
-    /* Return the character if printable, otherwise return a dot '.' */
-    return (b >= 32 && b <= 126) ? b : '.';
-}
-
-HighlightCategory get_highlight_category(const uint8_t *buffer, size_t offset, size_t buffer_len) {
-    if (offset >= buffer_len) return HIGHLIGHT_NORMAL;
-    
-    uint8_t curr = buffer[offset];
-    uint8_t prev = (offset > 0) ? buffer[offset - 1] : 0;
-    uint8_t next = (offset + 1 < buffer_len) ? buffer[offset + 1] : 0;
-
-    /* Check if current byte is 0xFF (Start of marker) */
-    if (curr == 0xFF && offset + 1 < buffer_len) {
-        if (next == 0xD8) return HIGHLIGHT_JPEG_SOI;
-        if (next == 0xD9) return HIGHLIGHT_JPEG_EOI;
-        if (next != 0x00) return HIGHLIGHT_JPEG_MARKER;
-        return HIGHLIGHT_JPEG_DATA; /* FF 00 is escaped data in JPEG */
-    }
-    
-    /* Check if previous byte was 0xFF (Current byte is the marker type) */
-    if (prev == 0xFF) {
-        if (curr == 0xD8) return HIGHLIGHT_JPEG_SOI;
-        if (curr == 0xD9) return HIGHLIGHT_JPEG_EOI;
-        if (curr == 0x00) return HIGHLIGHT_JPEG_DATA;
-        if (curr != 0x00) return HIGHLIGHT_JPEG_MARKER;
-    }
-
-    return HIGHLIGHT_NORMAL;
-}
