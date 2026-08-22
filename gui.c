@@ -34,6 +34,8 @@ typedef struct {
     int rows;
     int aspect_w;
     int aspect_h;
+    int window_width;
+    int window_height;
 
     char font_name[64];
     int font_size;
@@ -70,7 +72,6 @@ static char ini_path[MAX_PATH + 16];
 /* Global Windows state                                                */
 /* ================================================================== */
 
-
 static RECT fullClientRect = {0};
 static RECT clientRect = {0};
 
@@ -96,18 +97,6 @@ static uint8_t temp_hex = 0;
 /* Color helpers                                                       */
 /* ================================================================== */
 
-/*
- * Read a color from the INI file.
- *
- * Accepted format:
- *
- *     #FFFFFF
- *     #00FF00
- *     #ff0000
- *
- * The old R,G,B format is also accepted so old config files
- * continue to work.
- */
 static COLORREF ini_get_color(const char *section,
                               const char *key,
                               COLORREF default_color)
@@ -123,9 +112,6 @@ static COLORREF ini_get_color(const char *section,
         ini_path
     );
 
-    /*
-     * First try #RRGGBB.
-     */
     if (buffer[0] == '#') {
         unsigned int rgb = 0;
 
@@ -138,9 +124,6 @@ static COLORREF ini_get_color(const char *section,
         }
     }
 
-    /*
-     * Also accept RRGGBB without '#'.
-     */
     {
         unsigned int rgb = 0;
 
@@ -155,11 +138,6 @@ static COLORREF ini_get_color(const char *section,
         }
     }
 
-    /*
-     * Backwards compatibility with the old:
-     *
-     *     30,30,30
-     */
     {
         int r;
         int g;
@@ -172,11 +150,6 @@ static COLORREF ini_get_color(const char *section,
     return default_color;
 }
 
-/*
- * Write colors to the INI file as:
- *
- *     #RRGGBB
- */
 static void ini_put_color(const char *section,
                           const char *key,
                           COLORREF color)
@@ -206,127 +179,33 @@ static void ini_put_color(const char *section,
 
 static void generate_default_ini(void)
 {
-    WritePrivateProfileStringA("Window", "rows", "20", ini_path);        // Changed from 32 to 20
-    WritePrivateProfileStringA("Window", "aspect_w", "16", ini_path);    // Changed from 32 to 16
-    WritePrivateProfileStringA("Window", "aspect_h", "9", ini_path);     // Changed from 32 to 9
-    
+    WritePrivateProfileStringA("Window", "rows", "20", ini_path);
+    WritePrivateProfileStringA("Window", "aspect_w", "16", ini_path);
+    WritePrivateProfileStringA("Window", "aspect_h", "9", ini_path);
+    WritePrivateProfileStringA("Window", "width", "900", ini_path);
+    WritePrivateProfileStringA("Window", "height", "900", ini_path);
     WritePrivateProfileStringA("Font", "name", "Consolas", ini_path);
-    WritePrivateProfileStringA("Font", "size", "16", ini_path);          // Changed from 32 to 16
+    WritePrivateProfileStringA("Font", "size", "16", ini_path);
 
-    /* Colors are now written as #RRGGBB. */
+    ini_put_color("Colors", "background", RGB(30, 30, 30));
+    ini_put_color("Colors", "menu_bg", RGB(45, 45, 45));
+    ini_put_color("Colors", "menu_text", RGB(220, 220, 220));
+    ini_put_color("Colors", "menu_hidden", RGB(100, 100, 100));
+    ini_put_color("Colors", "offset", RGB(0, 255, 255));
+    ini_put_color("Colors", "hex", RGB(0, 255, 0));
+    ini_put_color("Colors", "ascii", RGB(255, 255, 0));
+    ini_put_color("Colors", "selection", RGB(0, 50, 150));
+    ini_put_color("Colors", "cursor", RGB(0, 150, 255));
+    ini_put_color("Colors", "status_bg", RGB(40, 40, 40));
+    ini_put_color("Colors", "status_text", RGB(180, 180, 180));
+    ini_put_color("Colors", "readonly_btn", RGB(0, 180, 0));
+    ini_put_color("Colors", "overwrite_btn", RGB(200, 0, 0));
 
-    ini_put_color(
-        "Colors",
-        "background",
-        RGB(30, 30, 30)
-    );
-
-    ini_put_color(
-        "Colors",
-        "menu_bg",
-        RGB(45, 45, 45)
-    );
-
-    ini_put_color(
-        "Colors",
-        "menu_text",
-        RGB(220, 220, 220)
-    );
-
-    ini_put_color(
-        "Colors",
-        "menu_hidden",
-        RGB(100, 100, 100)
-    );
-
-    ini_put_color(
-        "Colors",
-        "offset",
-        RGB(0, 255, 255)
-    );
-
-    ini_put_color(
-        "Colors",
-        "hex",
-        RGB(0, 255, 0)
-    );
-
-    ini_put_color(
-        "Colors",
-        "ascii",
-        RGB(255, 255, 0)
-    );
-
-    ini_put_color(
-        "Colors",
-        "selection",
-        RGB(0, 50, 150)
-    );
-
-    ini_put_color(
-        "Colors",
-        "cursor",
-        RGB(0, 150, 255)
-    );
-
-    ini_put_color(
-        "Colors",
-        "status_bg",
-        RGB(40, 40, 40)
-    );
-
-    ini_put_color(
-        "Colors",
-        "status_text",
-        RGB(180, 180, 180)
-    );
-
-    ini_put_color(
-        "Colors",
-        "readonly_btn",
-        RGB(0, 180, 0)
-    );
-
-    ini_put_color(
-        "Colors",
-        "overwrite_btn",
-        RGB(200, 0, 0)
-    );
-
-    WritePrivateProfileStringA(
-        "Behavior",
-        "menu_hide_delay",
-        "2000",
-        ini_path
-    );
-
-    WritePrivateProfileStringA(
-        "Behavior",
-        "bytes_per_row",
-        "16",
-        ini_path
-    );
-
-    WritePrivateProfileStringA(
-        "Behavior",
-        "view_layout",
-        "0",
-        ini_path
-    );
-
-    WritePrivateProfileStringA(
-        "Behavior",
-        "edit_mode",
-        "0",
-        ini_path
-    );
-
-    WritePrivateProfileStringA(
-        "Engine",
-        "tracker_initial_capacity",
-        "65536",
-        ini_path
-    );
+    WritePrivateProfileStringA("Behavior", "menu_hide_delay", "2000", ini_path);
+    WritePrivateProfileStringA("Behavior", "bytes_per_row", "16", ini_path);
+    WritePrivateProfileStringA("Behavior", "view_layout", "0", ini_path);
+    WritePrivateProfileStringA("Behavior", "edit_mode", "0", ini_path);
+    WritePrivateProfileStringA("Engine", "tracker_initial_capacity", "65536", ini_path);
 }
 
 /* ================================================================== */
@@ -337,222 +216,62 @@ static void load_config(void)
 {
     char exe_path[MAX_PATH];
 
-    GetModuleFileNameA(
-        NULL,
-        exe_path,
-        sizeof(exe_path)
-    );
+    GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
 
     char *slash = strrchr(exe_path, '\\');
 
     if (slash)
         *(slash + 1) = '\0';
 
-    snprintf(
-        ini_path,
-        sizeof(ini_path),
-        "%sconfig.ini",
-        exe_path
-    );
+    snprintf(ini_path, sizeof(ini_path), "%sconfig.ini", exe_path);
 
     if (GetFileAttributesA(ini_path) == INVALID_FILE_ATTRIBUTES)
         generate_default_ini();
 
-    cfg.rows = GetPrivateProfileIntA(
-        "Window",
-        "rows",
-        16,
-        ini_path
-    );
+    cfg.window_width = GetPrivateProfileIntA("Window", "width", 900, ini_path);
+    cfg.window_height = GetPrivateProfileIntA("Window", "height", 900, ini_path);
 
-    cfg.aspect_w = GetPrivateProfileIntA(
-        "Window",
-        "aspect_w",
-        16,
-        ini_path
-    );
+    cfg.rows = GetPrivateProfileIntA("Window", "rows", 20, ini_path);
+    cfg.aspect_w = GetPrivateProfileIntA("Window", "aspect_w", 16, ini_path);
+    cfg.aspect_h = GetPrivateProfileIntA("Window", "aspect_h", 9, ini_path);
 
-    cfg.aspect_h = GetPrivateProfileIntA(
-        "Window",
-        "aspect_h",
-        9,
-        ini_path
-    );
+    GetPrivateProfileStringA("Font", "name", "Consolas", cfg.font_name, sizeof(cfg.font_name), ini_path);
+    cfg.font_size = GetPrivateProfileIntA("Font", "size", 16, ini_path);
 
-    GetPrivateProfileStringA(
-        "Font",
-        "name",
-        "Consolas",
-        cfg.font_name,
-        sizeof(cfg.font_name),
-        ini_path
-    );
+    cfg.col_background = ini_get_color("Colors", "background", RGB(30, 30, 30));
+    cfg.col_menu_bg = ini_get_color("Colors", "menu_bg", RGB(45, 45, 45));
+    cfg.col_menu_text = ini_get_color("Colors", "menu_text", RGB(220, 220, 220));
+    cfg.col_menu_hidden = ini_get_color("Colors", "menu_hidden", RGB(100, 100, 100));
+    cfg.col_offset = ini_get_color("Colors", "offset", RGB(0, 255, 255));
+    cfg.col_hex = ini_get_color("Colors", "hex", RGB(0, 255, 0));
+    cfg.col_ascii = ini_get_color("Colors", "ascii", RGB(255, 255, 0));
+    cfg.col_selection = ini_get_color("Colors", "selection", RGB(0, 50, 150));
+    cfg.col_cursor = ini_get_color("Colors", "cursor", RGB(0, 150, 255));
+    cfg.col_status_bg = ini_get_color("Colors", "status_bg", RGB(40, 40, 40));
+    cfg.col_status_text = ini_get_color("Colors", "status_text", RGB(180, 180, 180));
+    cfg.col_ro_btn = ini_get_color("Colors", "readonly_btn", RGB(0, 180, 0));
+    cfg.col_rw_btn = ini_get_color("Colors", "overwrite_btn", RGB(200, 0, 0));
 
-    cfg.font_size = GetPrivateProfileIntA(
-        "Font",
-        "size",
-        16,
-        ini_path
-    );
-
-    /*
-     * Colors.
-     *
-     * These now read:
-     *
-     *     #RRGGBB
-     */
-    cfg.col_background = ini_get_color(
-        "Colors",
-        "background",
-        RGB(30, 30, 30)
-    );
-
-    cfg.col_menu_bg = ini_get_color(
-        "Colors",
-        "menu_bg",
-        RGB(45, 45, 45)
-    );
-
-    cfg.col_menu_text = ini_get_color(
-        "Colors",
-        "menu_text",
-        RGB(220, 220, 220)
-    );
-
-    cfg.col_menu_hidden = ini_get_color(
-        "Colors",
-        "menu_hidden",
-        RGB(100, 100, 100)
-    );
-
-    cfg.col_offset = ini_get_color(
-        "Colors",
-        "offset",
-        RGB(0, 255, 255)
-    );
-
-    cfg.col_hex = ini_get_color(
-        "Colors",
-        "hex",
-        RGB(0, 255, 0)
-    );
-
-    cfg.col_ascii = ini_get_color(
-        "Colors",
-        "ascii",
-        RGB(255, 255, 0)
-    );
-
-    cfg.col_selection = ini_get_color(
-        "Colors",
-        "selection",
-        RGB(0, 50, 150)
-    );
-
-    cfg.col_cursor = ini_get_color(
-        "Colors",
-        "cursor",
-        RGB(0, 150, 255)
-    );
-
-    cfg.col_status_bg = ini_get_color(
-        "Colors",
-        "status_bg",
-        RGB(40, 40, 40)
-    );
-
-    cfg.col_status_text = ini_get_color(
-        "Colors",
-        "status_text",
-        RGB(180, 180, 180)
-    );
-
-    cfg.col_ro_btn = ini_get_color(
-        "Colors",
-        "readonly_btn",
-        RGB(0, 180, 0)
-    );
-
-    cfg.col_rw_btn = ini_get_color(
-        "Colors",
-        "overwrite_btn",
-        RGB(200, 0, 0)
-    );
-
-    cfg.menu_hide_delay = GetPrivateProfileIntA(
-        "Behavior",
-        "menu_hide_delay",
-        2000,
-        ini_path
-    );
-
-    cfg.bytes_per_row = GetPrivateProfileIntA(
-        "Behavior",
-        "bytes_per_row",
-        16,
-        ini_path
-    );
-
-    cfg.view_layout = GetPrivateProfileIntA(
-        "Behavior",
-        "view_layout",
-        0,
-        ini_path
-    );
-
-    cfg.edit_mode = GetPrivateProfileIntA(
-        "Behavior",
-        "edit_mode",
-        0,
-        ini_path
-    );
-
-    cfg.tracker_cap = GetPrivateProfileIntA(
-        "Engine",
-        "tracker_initial_capacity",
-        65536,
-        ini_path
-    );
-
-    /* Validate configuration. */
+    cfg.menu_hide_delay = GetPrivateProfileIntA("Behavior", "menu_hide_delay", 2000, ini_path);
+    cfg.bytes_per_row = GetPrivateProfileIntA("Behavior", "bytes_per_row", 16, ini_path);
+    cfg.view_layout = GetPrivateProfileIntA("Behavior", "view_layout", 0, ini_path);
+    cfg.edit_mode = GetPrivateProfileIntA("Behavior", "edit_mode", 0, ini_path);
+    cfg.tracker_cap = GetPrivateProfileIntA("Engine", "tracker_initial_capacity", 65536, ini_path);
 
     if (cfg.font_name[0] == '\0') {
-        strncpy(
-            cfg.font_name,
-            "Consolas",
-            sizeof(cfg.font_name) - 1
-        );
-
+        strncpy(cfg.font_name, "Consolas", sizeof(cfg.font_name) - 1);
         cfg.font_name[sizeof(cfg.font_name) - 1] = '\0';
     }
 
-    if (cfg.rows < 1)
-        cfg.rows = 16;
-
-    if (cfg.aspect_w < 1)
-        cfg.aspect_w = 16;
-
-    if (cfg.aspect_h < 1)
-        cfg.aspect_h = 9;
-
-    if (cfg.font_size < 1)
-        cfg.font_size = 16;
-
-    if (cfg.menu_hide_delay < 1)
-        cfg.menu_hide_delay = 2000;
-
-    if (cfg.bytes_per_row < 1)
-        cfg.bytes_per_row = 16;
-
-    if (cfg.view_layout != 1)
-        cfg.view_layout = 0;
-
-    if (cfg.edit_mode != 1)
-        cfg.edit_mode = 0;
-
-    if (cfg.tracker_cap < 64)
-        cfg.tracker_cap = 65536;
+    if (cfg.rows < 1) cfg.rows = 20;
+    if (cfg.aspect_w < 1) cfg.aspect_w = 16;
+    if (cfg.aspect_h < 1) cfg.aspect_h = 9;
+    if (cfg.font_size < 1) cfg.font_size = 16;
+    if (cfg.menu_hide_delay < 1) cfg.menu_hide_delay = 2000;
+    if (cfg.bytes_per_row < 1) cfg.bytes_per_row = 16;
+    if (cfg.view_layout != 1) cfg.view_layout = 0;
+    if (cfg.edit_mode != 1) cfg.edit_mode = 0;
+    if (cfg.tracker_cap < 64) cfg.tracker_cap = 65536;
 }
 
 /* ================================================================== */
@@ -561,78 +280,28 @@ static void load_config(void)
 
 static void SnapWindowSize(HWND hwnd, int rows)
 {
-    if (charHeight == 0)
-        return;
+    if (charHeight == 0) return;
+    if (rows < 1) rows = 1;
 
-    if (rows < 1)
-        rows = 1;
-
-    RECT wr;
-    RECT cr;
-
+    RECT wr, cr;
     GetWindowRect(hwnd, &wr);
     GetClientRect(hwnd, &cr);
 
-    int frame_h =
-        (wr.bottom - wr.top) -
-        (cr.bottom - cr.top);
+    int frame_h = (wr.bottom - wr.top) - (cr.bottom - cr.top);
+    int frame_w = (wr.right - wr.left) - (cr.right - cr.left);
 
-    int frame_w =
-        (wr.right - wr.left) -
-        (cr.right - cr.left);
-
-    int client_h =
-        MENU_HEIGHT +
-        STATUS_HEIGHT +
-        rows * charHeight;
-
+    int client_h = MENU_HEIGHT + STATUS_HEIGHT + rows * charHeight;
     int win_h = client_h + frame_h;
 
-    int win_w =
-        (int)(
-            (double)win_h *
-            (double)cfg.aspect_w /
-            (double)cfg.aspect_h
-        );
+    int win_w = (int)((double)win_h * (double)cfg.aspect_w / (double)cfg.aspect_h);
 
-    int bpr =
-        editor.bytes_per_row > 0
-            ? editor.bytes_per_row
-            : 16;
+    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+    int content_chars = (editor.view_layout == 0) ? (10 + bpr * 3 + 2 + bpr + 2) : (10 + bpr + 2);
+    int min_w = content_chars * charWidth + frame_w + 20;
 
-    int content_chars;
+    if (win_w < min_w) win_w = min_w;
 
-    if (editor.view_layout == 0) {
-        content_chars =
-            10 +
-            bpr * 3 +
-            2 +
-            bpr +
-            2;
-    } else {
-        content_chars =
-            10 +
-            bpr +
-            2;
-    }
-
-    int min_w =
-        content_chars * charWidth +
-        frame_w +
-        20;
-
-    if (win_w < min_w)
-        win_w = min_w;
-
-    SetWindowPos(
-        hwnd,
-        NULL,
-        wr.left,
-        wr.top,
-        win_w,
-        win_h,
-        SWP_NOZORDER | SWP_NOMOVE
-    );
+    SetWindowPos(hwnd, NULL, wr.left, wr.top, win_w, win_h, SWP_NOZORDER | SWP_NOMOVE);
 }
 
 /* ================================================================== */
@@ -644,11 +313,8 @@ static size_t get_virtual_size(void)
     size_t size = get_effective_size(&editor);
 
     if (!editor.readonly_mode) {
-        if (editor.cursor > size)
-            size = editor.cursor;
-
-        if (size < SIZE_MAX)
-            size++;
+        if (editor.cursor > size) size = editor.cursor;
+        if (size < SIZE_MAX) size++;
     }
 
     return size;
@@ -656,29 +322,16 @@ static size_t get_virtual_size(void)
 
 static size_t get_total_rows(void)
 {
-    int bpr =
-        editor.bytes_per_row > 0
-            ? editor.bytes_per_row
-            : 16;
-
+    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
     size_t size = get_virtual_size();
-
     size_t rows;
 
-    if (size > SIZE_MAX - (size_t)bpr) {
-        rows = SIZE_MAX / (size_t)bpr;
-    } else {
-        rows =
-            (size + (size_t)bpr - 1) /
-            (size_t)bpr;
-    }
+    if (size > SIZE_MAX - (size_t)bpr) rows = SIZE_MAX / (size_t)bpr;
+    else rows = (size + (size_t)bpr - 1) / (size_t)bpr;
 
-    if (rows == 0)
-        rows = 1;
-
+    if (rows == 0) rows = 1;
     return rows;
 }
-
 
 /* ================================================================== */
 /* Custom Dark Mode Scrollbar                                          */
@@ -688,7 +341,6 @@ static RECT g_scrollRect = {0};
 static BOOL g_isDraggingScroll = FALSE;
 static int g_scrollDragOffset = 0;
 
-/* 1. ClampViewOffset (Used by everyone else) */
 static void ClampViewOffset(void) {
     int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
     size_t totalRows = get_total_rows();
@@ -697,7 +349,6 @@ static void ClampViewOffset(void) {
     if (editor.view_offset > maxOffset) editor.view_offset = maxOffset;
 }
 
-/* 2. GetScrollThumbRect (Used by DrawCustomScrollBar) */
 static RECT GetScrollThumbRect(void) {
     RECT thumb = {0};
     int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
@@ -706,13 +357,13 @@ static RECT GetScrollThumbRect(void) {
     size_t maxScrollRow = totalRows > (size_t)visibleRows ? totalRows - (size_t)visibleRows : 0;
 
     if (totalRows <= (size_t)visibleRows) {
-        thumb = g_scrollRect; // Full height if no scroll needed
+        thumb = g_scrollRect;
         return thumb;
     }
 
     int trackHeight = g_scrollRect.bottom - g_scrollRect.top;
     int thumbHeight = trackHeight * visibleRows / totalRows;
-    if (thumbHeight < 20) thumbHeight = 20; // Minimum thumb size
+    if (thumbHeight < 20) thumbHeight = 20;
     
     int thumbY = g_scrollRect.top + (trackHeight - thumbHeight) * viewRow / maxScrollRow;
 
@@ -723,23 +374,19 @@ static RECT GetScrollThumbRect(void) {
     return thumb;
 }
 
-/* 3. DrawCustomScrollBar (Uses GetScrollThumbRect) */
 static void DrawCustomScrollBar(HDC hdc) {
     if (g_scrollRect.right <= g_scrollRect.left) return;
 
-    // 1. Draw Track (Matches Background)
     HBRUSH trackBrush = CreateSolidBrush(cfg.col_background);
     FillRect(hdc, &g_scrollRect, trackBrush);
     DeleteObject(trackBrush);
 
-    // 2. Draw Thumb (Matches Cursor/Accent Color)
     RECT thumb = GetScrollThumbRect();
     HBRUSH thumbBrush = CreateSolidBrush(cfg.col_cursor);
     FillRect(hdc, &thumb, thumbBrush);
     DeleteObject(thumbBrush);
 }
 
-/* 4. WheelScroll (Uses ClampViewOffset) */
 static void WheelScroll(HWND hwnd, int delta)
 {
     if (delta == 0) return;
@@ -757,7 +404,6 @@ static void WheelScroll(HWND hwnd, int delta)
     }
 
     ClampViewOffset();
-
     InvalidateRect(hwnd, NULL, FALSE);
 }
 
@@ -774,7 +420,6 @@ static void OnSize(HWND hwnd, int cx, int cy)
 
     clientRect = fullClientRect;
 
-    // Calculate custom scrollbar area on the right edge
     int scrollWidth = GetSystemMetrics(SM_CXVSCROLL);
     g_scrollRect.left = cx - scrollWidth;
     g_scrollRect.right = cx;
@@ -782,7 +427,7 @@ static void OnSize(HWND hwnd, int cx, int cy)
     g_scrollRect.bottom = cy - STATUS_HEIGHT;
 
     if (g_scrollRect.left < 0) g_scrollRect.left = 0;
-    clientRect.right = g_scrollRect.left; // Shrink client area so hex doesn't overlap
+    clientRect.right = g_scrollRect.left;
 
     if (charHeight > 0) {
         visibleRows = (clientRect.bottom - MENU_HEIGHT - STATUS_HEIGHT) / charHeight;
@@ -792,7 +437,6 @@ static void OnSize(HWND hwnd, int cx, int cy)
     ClampViewOffset();
     InvalidateRect(hwnd, NULL, FALSE);
 }
-
 
 /* ================================================================== */
 /* Bytes-per-row                                                       */
@@ -804,48 +448,21 @@ static void ClampBPRForLayout(HWND hwnd) {
         editor.bytes_per_row = limit;
         SnapWindowSize(hwnd, visibleRows);
     }
-    ClampViewOffset(); // Replaced UpdateVScroll
+    ClampViewOffset();
     InvalidateRect(hwnd, NULL, FALSE);
 }
 
 static void CycleBPR(HWND hwnd)
 {
-    static const int values[] = {
-        8,
-        16,
-        24,
-        32,
-        48,
-        64,
-        96,
-        128,
-        192
-    };
-
-    int limit =
-        editor.view_layout == 1
-            ? 48 * 4
-            : 48;
-
-    int current =
-        editor.bytes_per_row;
-
+    static const int values[] = { 8, 16, 24, 32, 48, 64, 96, 128, 192 };
+    int limit = editor.view_layout == 1 ? 48 * 4 : 48;
+    int current = editor.bytes_per_row;
     int next = 8;
 
     if (current < limit) {
-
         next = limit;
-
-        for (
-            size_t i = 0;
-            i < sizeof(values) / sizeof(values[0]);
-            i++
-        ) {
-
-            if (
-                values[i] > current &&
-                values[i] <= limit
-            ) {
+        for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
+            if (values[i] > current && values[i] <= limit) {
                 next = values[i];
                 break;
             }
@@ -853,19 +470,9 @@ static void CycleBPR(HWND hwnd)
     }
 
     editor.bytes_per_row = next;
-
-    SnapWindowSize(
-        hwnd,
-        visibleRows
-    );
-
+    SnapWindowSize(hwnd, visibleRows);
     ClampViewOffset();
-
-    InvalidateRect(
-        hwnd,
-        NULL,
-        FALSE
-    );
+    InvalidateRect(hwnd, NULL, FALSE);
 }
 
 /* ================================================================== */
@@ -874,37 +481,14 @@ static void CycleBPR(HWND hwnd)
 
 static void EnsureCursorVisible(void)
 {
-    int bpr =
-        editor.bytes_per_row > 0
-            ? editor.bytes_per_row
-            : 16;
-
-    size_t cursor_row =
-        editor.cursor /
-        (size_t)bpr;
-
-    size_t view_row =
-        editor.view_offset /
-        (size_t)bpr;
+    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+    size_t cursor_row = editor.cursor / (size_t)bpr;
+    size_t view_row = editor.view_offset / (size_t)bpr;
 
     if (cursor_row < view_row) {
-
-        editor.view_offset =
-            cursor_row *
-            (size_t)bpr;
-
-    } else if (
-        cursor_row >=
-        view_row + (size_t)visibleRows
-    ) {
-
-        editor.view_offset =
-            (
-                cursor_row -
-                (size_t)visibleRows +
-                1
-            ) *
-            (size_t)bpr;
+        editor.view_offset = cursor_row * (size_t)bpr;
+    } else if (cursor_row >= view_row + (size_t)visibleRows) {
+        editor.view_offset = (cursor_row - (size_t)visibleRows + 1) * (size_t)bpr;
     }
 }
 
@@ -914,24 +498,17 @@ static void EnsureCursorVisible(void)
 
 static void CopySelectionToClipboard(HWND hwnd)
 {
-    if (!has_selection(&editor))
-        return;
+    if (!has_selection(&editor)) return;
 
     size_t size = get_effective_size(&editor);
-    if (size == 0)
-        return;
+    if (size == 0) return;
 
     size_t low = sel_min(&editor);
     size_t high = sel_max(&editor);
 
-    if (low >= size)
-        return;
-
-    if (high >= size)
-        high = size - 1;
-
-    if (low > high)
-        return;
+    if (low >= size) return;
+    if (high >= size) high = size - 1;
+    if (low > high) return;
 
     int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
 
@@ -941,8 +518,7 @@ static void CopySelectionToClipboard(HWND hwnd)
     size_t per_row = 12 + (size_t)bpr * 3 + 4;
 
     char *buffer = (char *)malloc(total_rows * per_row + 1);
-    if (!buffer)
-        return;
+    if (!buffer) return;
 
     char *p = buffer;
 
@@ -995,7 +571,6 @@ static void CopySelectionToClipboard(HWND hwnd)
     free(buffer);
 }
 
-
 static void PasteFromClipboard(HWND hwnd) {
     if (editor.readonly_mode) return;
     if (!OpenClipboard(hwnd)) return;
@@ -1040,7 +615,7 @@ static void PasteFromClipboard(HWND hwnd) {
     
     size_t paste_offset = editor.cursor;
     if (has_selection(&editor)) {
-        paste_offset = sel_min(&editor); // Overwrite selection if active
+        paste_offset = sel_min(&editor);
     }
     
     paste_bytes(&editor, paste_offset, bytes, byteCount);
@@ -1061,7 +636,6 @@ static void PasteFromClipboard(HWND hwnd) {
 static void DoSave(HWND hwnd)
 {
     if (editor.memory_mode) {
-
         OPENFILENAMEA ofn = {0};
         char filename[MAX_PATH] = {0};
 
@@ -1073,94 +647,43 @@ static void DoSave(HWND hwnd)
         ofn.Flags = OFN_OVERWRITEPROMPT;
 
         if (GetSaveFileNameA(&ofn)) {
-
-            FILE *file =
-                fopen(filename, "wb");
+            FILE *file = fopen(filename, "wb");
 
             if (file) {
-
                 if (editor.mem_size > 0) {
-                    fwrite(
-                        editor.mem_buffer,
-                        1,
-                        editor.mem_size,
-                        file
-                    );
+                    fwrite(editor.mem_buffer, 1, editor.mem_size, file);
                 }
-
                 fclose(file);
 
-                int bpr_keep =
-                    editor.bytes_per_row;
-
-                int layout_keep =
-                    editor.view_layout;
-
-                int mode_keep =
-                    editor.edit_mode;
-
-                int readonly_keep =
-                    editor.readonly_mode;
-
-                size_t cursor_keep =
-                    editor.cursor;
-
-                size_t view_keep =
-                    editor.view_offset;
+                int bpr_keep = editor.bytes_per_row;
+                int layout_keep = editor.view_layout;
+                int mode_keep = editor.edit_mode;
+                int readonly_keep = editor.readonly_mode;
+                size_t cursor_keep = editor.cursor;
+                size_t view_keep = editor.view_offset;
 
                 cleanup_editor(&editor);
 
-                if (init_file(
-                        &editor,
-                        filename
-                    ) != 0) {
-
-                    init_memory_mode(
-                        &editor
-                    );
+                if (init_file(&editor, filename) != 0) {
+                    init_memory_mode(&editor);
                 }
 
-                editor.bytes_per_row =
-                    bpr_keep;
+                editor.bytes_per_row = bpr_keep;
+                editor.view_layout = layout_keep;
+                editor.edit_mode = mode_keep;
+                editor.readonly_mode = readonly_keep;
+                editor.cursor = cursor_keep;
+                editor.view_offset = view_keep;
 
-                editor.view_layout =
-                    layout_keep;
+                size_t file_size = get_effective_size(&editor);
 
-                editor.edit_mode =
-                    mode_keep;
-
-                editor.readonly_mode =
-                    readonly_keep;
-
-                editor.cursor =
-                    cursor_keep;
-
-                editor.view_offset =
-                    view_keep;
-
-                size_t file_size =
-                    get_effective_size(
-                        &editor
-                    );
-
-                if (file_size == 0) {
-
-                    editor.cursor = 0;
-
-                } else if (
-                    editor.cursor > file_size
-                ) {
-
-                    editor.cursor =
-                        file_size;
-                }
+                if (file_size == 0) editor.cursor = 0;
+                else if (editor.cursor > file_size) editor.cursor = file_size;
 
                 EnsureCursorVisible();
             }
         }
-
     } else {
-
         save_dirty(&editor);
     }
 
@@ -1184,35 +707,20 @@ static void DoOpen(HWND hwnd)
     ofn.Flags = OFN_FILEMUSTEXIST;
 
     if (GetOpenFileNameA(&ofn)) {
-
         cleanup_editor(&editor);
 
-        if (init_file(
-                &editor,
-                filename
-            ) != 0) {
-
-            init_memory_mode(
-                &editor
-            );
+        if (init_file(&editor, filename) != 0) {
+            init_memory_mode(&editor);
         }
 
-        editor.bytes_per_row =
-            cfg.bytes_per_row;
-
-        editor.view_layout =
-            cfg.view_layout;
-
-        editor.edit_mode =
-            cfg.edit_mode;
-
+        editor.bytes_per_row = cfg.bytes_per_row;
+        editor.view_layout = cfg.view_layout;
+        editor.edit_mode = cfg.edit_mode;
         editor.readonly_mode = 0;
-
         editor.cursor = 0;
         editor.view_offset = 0;
 
         clear_selection(&editor);
-
         hex_state = 0;
 
         ClampBPRForLayout(hwnd);
@@ -1226,22 +734,13 @@ static void DoOpen(HWND hwnd)
 static RECT GetBtnRect(void)
 {
     RECT r;
-
-    // Position cleanly inside the bottom right area
     r.right = fullClientRect.right - 12;
     r.left = r.right - BTN_W;
     r.bottom = fullClientRect.bottom - 6;
     r.top = r.bottom - BTN_H;
 
-    if (r.left < 0) {
-        r.left = 0;
-        r.right = BTN_W;
-    }
-
-    if (r.top < 0) {
-        r.top = 0;
-        r.bottom = BTN_H;
-    }
+    if (r.left < 0) { r.left = 0; r.right = BTN_W; }
+    if (r.top < 0) { r.top = 0; r.bottom = BTN_H; }
 
     return r;
 }
@@ -1250,341 +749,160 @@ static RECT GetBtnRect(void)
 /* Grid hit testing                                                    */
 /* ================================================================== */
 
-static size_t GridHitTest(
-    int x,
-    int y,
-    int *out_mode)
+static size_t GridHitTest(int x, int y, int *out_mode)
 {
-    int bpr =
-        editor.bytes_per_row > 0
-            ? editor.bytes_per_row
-            : 16;
-
-    int xHex =
-        10 * charWidth;
-
+    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+    int xHex = 10 * charWidth;
     int xAscii;
 
-    if (editor.view_layout == 0) {
+    if (editor.view_layout == 0) xAscii = xHex + (bpr * 3 + 2) * charWidth;
+    else xAscii = xHex;
 
-        xAscii =
-            xHex +
-            (bpr * 3 + 2) *
-            charWidth;
+    if (y < MENU_HEIGHT || y >= clientRect.bottom - STATUS_HEIGHT) return (size_t)-1;
 
-    } else {
-
-        xAscii = xHex;
-    }
-
-    if (
-        y < MENU_HEIGHT ||
-        y >= clientRect.bottom - STATUS_HEIGHT
-    ) {
-        return (size_t)-1;
-    }
-
-    int row =
-        (y - MENU_HEIGHT) /
-        charHeight;
-
-    size_t row_offset =
-        editor.view_offset +
-        (size_t)row *
-        (size_t)bpr;
-
+    int row = (y - MENU_HEIGHT) / charHeight;
+    size_t row_offset = editor.view_offset + (size_t)row * (size_t)bpr;
     int column = -1;
 
-    if (
-        editor.view_layout == 0 &&
-        x >= xHex &&
-        x < xAscii - 2 * charWidth
-    ) {
-
-        column =
-            (x - xHex) /
-            (3 * charWidth);
-
-        if (out_mode)
-            *out_mode = 0;
-
+    if (editor.view_layout == 0 && x >= xHex && x < xAscii - 2 * charWidth) {
+        column = (x - xHex) / (3 * charWidth);
+        if (out_mode) *out_mode = 0;
     } else if (x >= xAscii) {
-
-        column =
-            (x - xAscii) /
-            charWidth;
-
-        if (out_mode)
-            *out_mode = 1;
+        column = (x - xAscii) / charWidth;
+        if (out_mode) *out_mode = 1;
     }
 
-    if (
-        column >= 0 &&
-        column < bpr
-    ) {
-
-        size_t offset =
-            row_offset +
-            (size_t)column;
-
-        size_t virtual_size =
-            get_virtual_size();
-
-        if (offset < virtual_size)
-            return offset;
+    if (column >= 0 && column < bpr) {
+        size_t offset = row_offset + (size_t)column;
+        size_t virtual_size = get_virtual_size();
+        if (offset < virtual_size) return offset;
     }
 
     return (size_t)-1;
 }
 
 /* ================================================================== */
+/* Menu Hit Testing Fix                                                */
+/* ================================================================== */
+
+static int GetMenuBlock(int x, int cw) {
+    if (cw <= 0) return -1;
+    
+    // The menu text starts at x = 15 in WM_PAINT
+    int charIndex = (x - 15) / cw;
+    if (charIndex < 0) return -1;
+
+    // Exact character lengths of each menu item including trailing space
+    static const int menu_lengths[] = { 
+        7,  // [O]pen 
+        7,  // [S]ave 
+        7,  // [U]ndo 
+        7,  // [R]edo 
+        7,  // [C]opy 
+        8,  // [P]aste 
+        8,  // [I]nput (Replaces Mode for typing)
+        6,  // [B]PR 
+        7,  // [M]ode  (Replaces View for layout)
+        6   // [X]xit
+    };
+    int num_items = sizeof(menu_lengths) / sizeof(menu_lengths[0]);
+    
+    int current_start = 0;
+    for (int i = 0; i < num_items; i++) {
+        if (charIndex >= current_start && charIndex < current_start + menu_lengths[i]) {
+            return i;
+        }
+        current_start += menu_lengths[i];
+    }
+    return -1;
+}
+
+/* ================================================================== */
 /* Window procedure                                                    */
 /* ================================================================== */
 
-LRESULT CALLBACK WndProc(
-    HWND hwnd,
-    UINT msg,
-    WPARAM wParam,
-    LPARAM lParam)
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    int bpr =
-        editor.bytes_per_row > 0
-            ? editor.bytes_per_row
-            : 16;
+    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
 
     switch (msg) {
-
-        case WM_ERASEBKGND:
-            return 1;
-
-        case WM_NCCALCSIZE:
-
-            if (wParam)
-                return 0;
-
-            break;
-
+        case WM_ERASEBKGND: return 1;
+        case WM_NCCALCSIZE: if (wParam) return 0; break;
+        
         case WM_NCHITTEST: {
-
-            POINT point = {
-                GET_X_LPARAM(lParam),
-                GET_Y_LPARAM(lParam)
-            };
-
+            POINT point = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
             ScreenToClient(hwnd, &point);
-
             RECT rc;
-
             GetClientRect(hwnd, &rc);
-
             int border = BORDER_PX;
 
             if (point.y < border) {
-
-                if (point.x < border)
-                    return HTTOPLEFT;
-
-                if (point.x > rc.right - border)
-                    return HTTOPRIGHT;
-
+                if (point.x < border) return HTTOPLEFT;
+                if (point.x > rc.right - border) return HTTOPRIGHT;
                 return HTTOP;
             }
-
             if (point.y > rc.bottom - border) {
-
-                if (point.x < border)
-                    return HTBOTTOMLEFT;
-
-                if (point.x > rc.right - border)
-                    return HTBOTTOMRIGHT;
-
+                if (point.x < border) return HTBOTTOMLEFT;
+                if (point.x > rc.right - border) return HTBOTTOMRIGHT;
                 return HTBOTTOM;
             }
-
-            if (point.x < border)
-                return HTLEFT;
-
-            if (point.x > rc.right - border)
-                return HTRIGHT;
-
+            if (point.x < border) return HTLEFT;
+            if (point.x > rc.right - border) return HTRIGHT;
             return HTCLIENT;
         }
 
         case WM_SIZING: {
+            if (charHeight == 0) break;
+            RECT *rect = (RECT *)lParam;
+            RECT wr, cr;
+            GetWindowRect(hwnd, &wr);
+            GetClientRect(hwnd, &cr);
 
-            if (charHeight == 0)
-                break;
-
-            RECT *rect =
-                (RECT *)lParam;
-
-            RECT wr;
-            RECT cr;
-
-            GetWindowRect(
-                hwnd,
-                &wr
-            );
-
-            GetClientRect(
-                hwnd,
-                &cr
-            );
-
-            int frameHeight =
-                (wr.bottom - wr.top) -
-                (cr.bottom - cr.top);
-
-            int available =
-                (rect->bottom - rect->top) -
-                frameHeight -
-                MENU_HEIGHT -
-                STATUS_HEIGHT;
-
-            int rows =
-                available /
-                charHeight;
-
-            if (rows < 1)
-                rows = 1;
-
-            int snapped =
-                MENU_HEIGHT +
-                STATUS_HEIGHT +
-                rows * charHeight +
-                frameHeight;
+            int frameHeight = (wr.bottom - wr.top) - (cr.bottom - cr.top);
+            int available = (rect->bottom - rect->top) - frameHeight - MENU_HEIGHT - STATUS_HEIGHT;
+            int rows = available / charHeight;
+            if (rows < 1) rows = 1;
+            int snapped = MENU_HEIGHT + STATUS_HEIGHT + rows * charHeight + frameHeight;
 
             switch (wParam) {
-
-                case WMSZ_TOP:
-                case WMSZ_TOPLEFT:
-                case WMSZ_TOPRIGHT:
-
-                    rect->top =
-                        rect->bottom -
-                        snapped;
-
-                    return TRUE;
-
-                case WMSZ_BOTTOM:
-                case WMSZ_BOTTOMLEFT:
-                case WMSZ_BOTTOMRIGHT:
-
-                    rect->bottom =
-                        rect->top +
-                        snapped;
-
-                    return TRUE;
-
-                default:
-                    return TRUE;
+                case WMSZ_TOP: case WMSZ_TOPLEFT: case WMSZ_TOPRIGHT:
+                    rect->top = rect->bottom - snapped; return TRUE;
+                case WMSZ_BOTTOM: case WMSZ_BOTTOMLEFT: case WMSZ_BOTTOMRIGHT:
+                    rect->bottom = rect->top + snapped; return TRUE;
+                default: return TRUE;
             }
         }
 
         case WM_CREATE: {
+            DragAcceptFiles(hwnd, TRUE);
+            SetTimer(hwnd, 1, (UINT)cfg.menu_hide_delay, NULL);
 
-            DragAcceptFiles(
-                hwnd,
-                TRUE
-            );
+            hFont = CreateFontA(cfg.font_size, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, cfg.font_name);
+            if (!hFont) hFont = (HFONT)GetStockObject(ANSI_FIXED_FONT);
 
-            SetTimer(
-                hwnd,
-                1,
-                (UINT)cfg.menu_hide_delay,
-                NULL
-            );
-
-            hFont = CreateFontA(
-                cfg.font_size,
-                0,
-                0,
-                0,
-                FW_NORMAL,
-                FALSE,
-                FALSE,
-                FALSE,
-                ANSI_CHARSET,
-                OUT_TT_PRECIS,
-                CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY,
-                FIXED_PITCH | FF_MODERN,
-                cfg.font_name
-            );
-
-            if (!hFont)
-                hFont =
-                    (HFONT)GetStockObject(
-                        ANSI_FIXED_FONT
-                    );
-
-            HDC hdc =
-                GetDC(hwnd);
-
-            SelectObject(
-                hdc,
-                hFont
-            );
-
+            HDC hdc = GetDC(hwnd);
+            SelectObject(hdc, hFont);
             TEXTMETRIC tm;
+            GetTextMetrics(hdc, &tm);
+            charWidth = tm.tmAveCharWidth;
+            charHeight = tm.tmHeight + tm.tmExternalLeading;
+            ReleaseDC(hwnd, hdc);
 
-            GetTextMetrics(
-                hdc,
-                &tm
-            );
-
-            charWidth =
-                tm.tmAveCharWidth;
-
-            charHeight =
-                tm.tmHeight +
-                tm.tmExternalLeading;
-
-            ReleaseDC(
-                hwnd,
-                hdc
-            );
-
-            SnapWindowSize(
-                hwnd,
-                cfg.rows
-            );
-
+            // REMOVED: SnapWindowSize(hwnd, cfg.rows);
+            // This was overriding the 900x900 configured default size.
 
             RECT current;
-
-            if (GetClientRect(
-                    hwnd,
-                    &current
-                )) {
-
-                OnSize(
-                    hwnd,
-                    current.right,
-                    current.bottom
-                );
+            if (GetClientRect(hwnd, &current)) {
+                OnSize(hwnd, current.right, current.bottom);
             }
 
             ClampBPRForLayout(hwnd);
-
             SetFocus(hwnd);
-
             break;
         }
 
-        case WM_SIZE:
-
-            OnSize(
-                hwnd,
-                LOWORD(lParam),
-                HIWORD(lParam)
-            );
-
-            break;
-
-        case WM_VSCROLL:
-
-            break;
+        case WM_SIZE: OnSize(hwnd, LOWORD(lParam), HIWORD(lParam)); break;
+        case WM_VSCROLL: break;
 
         case WM_MOUSEMOVE: {
             POINTS points = MAKEPOINTS(lParam);
@@ -1597,7 +915,6 @@ LRESULT CALLBACK WndProc(
                 SetTimer(hwnd, 1, (UINT)cfg.menu_hide_delay, NULL);
             }
 
-            // Handle Scrollbar Dragging
             if (g_isDraggingScroll && (wParam & MK_LBUTTON)) {
                 int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
                 size_t totalRows = get_total_rows();
@@ -1618,7 +935,6 @@ LRESULT CALLBACK WndProc(
                 InvalidateRect(hwnd, NULL, FALSE);
             }
 
-            // Handle Grid Selection Dragging
             if (is_dragging && (wParam & MK_LBUTTON)) {
                 int mode;
                 size_t offset = GridHitTest(points.x, points.y, &mode);
@@ -1633,299 +949,90 @@ LRESULT CALLBACK WndProc(
         }
 
         case WM_TIMER:
-
-            if (
-                wParam == 1 &&
-                menu_visible
-            ) {
-
+            if (wParam == 1 && menu_visible) {
                 menu_visible = FALSE;
-
-                InvalidateRect(
-                    hwnd,
-                    NULL,
-                    FALSE
-                );
+                InvalidateRect(hwnd, NULL, FALSE);
             }
-
             break;
 
-        /* ========================================================== */
-        /* Paint                                                       */
-        /* ========================================================== */
-
         case WM_PAINT: {
-
             PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            RECT paintRect = fullClientRect;
 
-            HDC hdc =
-                BeginPaint(
-                    hwnd,
-                    &ps
-                );
+            if (paintRect.right <= 0 || paintRect.bottom <= 0) paintRect = clientRect;
+            if (paintRect.right <= 0 || paintRect.bottom <= 0) { EndPaint(hwnd, &ps); return 0; }
 
-            RECT paintRect =
-                fullClientRect;
-
-            if (
-                paintRect.right <= 0 ||
-                paintRect.bottom <= 0
-            ) {
-                paintRect = clientRect;
-            }
-
-            if (
-                paintRect.right <= 0 ||
-                paintRect.bottom <= 0
-            ) {
-
-                EndPaint(
-                    hwnd,
-                    &ps
-                );
-
-                return 0;
-            }
-
-            HDC memoryDC =
-                CreateCompatibleDC(hdc);
-
-            HBITMAP memoryBitmap =
-                CreateCompatibleBitmap(
-                    hdc,
-                    paintRect.right,
-                    paintRect.bottom
-                );
+            HDC memoryDC = CreateCompatibleDC(hdc);
+            HBITMAP memoryBitmap = CreateCompatibleBitmap(hdc, paintRect.right, paintRect.bottom);
 
             if (!memoryDC || !memoryBitmap) {
-
-                if (memoryDC)
-                    DeleteDC(memoryDC);
-
-                if (memoryBitmap)
-                    DeleteObject(memoryBitmap);
-
-                EndPaint(
-                    hwnd,
-                    &ps
-                );
-
+                if (memoryDC) DeleteDC(memoryDC);
+                if (memoryBitmap) DeleteObject(memoryBitmap);
+                EndPaint(hwnd, &ps);
                 return 0;
             }
 
-            HBITMAP oldBitmap =
-                (HBITMAP)SelectObject(
-                    memoryDC,
-                    memoryBitmap
-                );
+            HBITMAP oldBitmap = (HBITMAP)SelectObject(memoryDC, memoryBitmap);
+            HBRUSH backgroundBrush = CreateSolidBrush(cfg.col_background);
+            FillRect(memoryDC, &paintRect, backgroundBrush);
+            DeleteObject(backgroundBrush);
 
-            HBRUSH backgroundBrush =
-                CreateSolidBrush(
-                    cfg.col_background
-                );
+            SelectObject(memoryDC, hFont);
+            SetBkMode(memoryDC, TRANSPARENT);
 
-            FillRect(
-                memoryDC,
-                &paintRect,
-                backgroundBrush
-            );
-
-            DeleteObject(
-                backgroundBrush
-            );
-
-            SelectObject(
-                memoryDC,
-                hFont
-            );
-
-            SetBkMode(
-                memoryDC,
-                TRANSPARENT
-            );
-
-            /* ------------------------------------------------------ */
-            /* Menu                                                    */
-            /* ------------------------------------------------------ */
-
-            RECT menuRect = {
-                0,
-                0,
-                paintRect.right,
-                MENU_HEIGHT
-            };
-
-            HBRUSH menuBrush =
-                CreateSolidBrush(
-                    cfg.col_menu_bg
-                );
-
-            FillRect(
-                memoryDC,
-                &menuRect,
-                menuBrush
-            );
-
+            RECT menuRect = { 0, 0, paintRect.right, MENU_HEIGHT };
+            HBRUSH menuBrush = CreateSolidBrush(cfg.col_menu_bg);
+            FillRect(memoryDC, &menuRect, menuBrush);
             DeleteObject(menuBrush);
 
             if (menu_visible) {
-
-                SetTextColor(
-                    memoryDC,
-                    cfg.col_menu_text
-                );
-
-                const char *menuText = "[O]pen [S]ave [U]ndo [R]edo [C]opy [P]aste [M]ode [B]PR [V]iew [X]xit";
-
-                TextOutA(
-                    memoryDC,
-                    15,
-                    8,
-                    menuText,
-                    (int)strlen(menuText)
-                );
-
+                SetTextColor(memoryDC, cfg.col_menu_text);
+                const char *menuText = "[O]pen [S]ave [U]ndo [R]edo [C]opy [P]aste [I]nput [B]PR [M]ode [X]xit";
+                TextOutA(memoryDC, 15, 8, menuText, (int)strlen(menuText));
             } else {
+                SetTextColor(memoryDC, cfg.col_menu_hidden);
+                const char *filename = editor.filename;
+                const char *slash1 = strrchr(filename, '\\');
+                const char *slash2 = strrchr(filename, '/');
 
-                SetTextColor(
-                    memoryDC,
-                    cfg.col_menu_hidden
-                );
-
-                const char *filename =
-                    editor.filename;
-
-                const char *slash1 =
-                    strrchr(
-                        filename,
-                        '\\'
-                    );
-
-                const char *slash2 =
-                    strrchr(
-                        filename,
-                        '/'
-                    );
-
-                if (slash1 || slash2) {
-
-                    filename =
-                        slash1 > slash2
-                            ? slash1 + 1
-                            : slash2 + 1;
-                }
+                if (slash1 || slash2) filename = slash1 > slash2 ? slash1 + 1 : slash2 + 1;
 
                 char title[512];
-
-                snprintf(
-                    title,
-                    sizeof(title),
-                    "RAM-Only Hex Editor [%s]",
-                    filename
-                );
-
-                TextOutA(
-                    memoryDC,
-                    15,
-                    8,
-                    title,
-                    (int)strlen(title)
-                );
+                snprintf(title, sizeof(title), "RAM-Only Hex Editor [%s]", filename);
+                TextOutA(memoryDC, 15, 8, title, (int)strlen(title));
             }
 
-            /* ------------------------------------------------------ */
-            /* Data                                                    */
-            /* ------------------------------------------------------ */
-
             int y = MENU_HEIGHT;
+            int xHex = 10 * charWidth;
+            size_t virtual_size = get_virtual_size();
+            int selectionActive = has_selection(&editor);
+            size_t selectionLow = selectionActive ? sel_min(&editor) : 0;
+            size_t selectionHigh = selectionActive ? sel_max(&editor) : 0;
 
-            int xHex =
-                10 * charWidth;
+            for (int row = 0; row < visibleRows; row++) {
+                size_t offset = editor.view_offset + (size_t)row * (size_t)bpr;
+                if (offset >= virtual_size) break;
 
-            size_t virtual_size =
-                get_virtual_size();
-
-            int selectionActive =
-                has_selection(&editor);
-
-            size_t selectionLow =
-                selectionActive
-                    ? sel_min(&editor)
-                    : 0;
-
-            size_t selectionHigh =
-                selectionActive
-                    ? sel_max(&editor)
-                    : 0;
-
-            for (
-                int row = 0;
-                row < visibleRows;
-                row++
-            ) {
-
-                size_t offset =
-                    editor.view_offset +
-                    (size_t)row *
-                    (size_t)bpr;
-
-                if (offset >= virtual_size)
-                    break;
-
-                /* Offset */
-
-                SetTextColor(
-                    memoryDC,
-                    cfg.col_offset
-                );
-
+                SetTextColor(memoryDC, cfg.col_offset);
                 char offsetText[32];
-
-                sprintf(
-                    offsetText,
-                    "%08llX  ",
-                    (unsigned long long)offset
-                );
-
-                TextOutA(
-                    memoryDC,
-                    0,
-                    y,
-                    offsetText,
-                    (int)strlen(offsetText)
-                );
+                sprintf(offsetText, "%08llX  ", (unsigned long long)offset);
+                TextOutA(memoryDC, 0, y, offsetText, (int)strlen(offsetText));
 
                 int xAscii;
 
-                /* -------------------------------------------------- */
-                /* HEX + ASCII layout                                 */
-                /* -------------------------------------------------- */
-
                 if (editor.view_layout == 0) {
-
                     xAscii = xHex + (bpr * 3 + 2) * charWidth;
 
                     for (int column = 0; column < bpr; column++) {
-
                         size_t current = offset + (size_t)column;
+                        if (current >= virtual_size) break;
 
-                        if (current >= virtual_size)
-                            break;
-
-                        int selected = selectionActive &&
-                                       current >= selectionLow &&
-                                       current <= selectionHigh;
-
-                        int cursor = current == editor.cursor &&
-                                     editor.edit_mode == 0;
+                        int selected = selectionActive && current >= selectionLow && current <= selectionHigh;
+                        int cursor = current == editor.cursor && editor.edit_mode == 0;
 
                         if (selected) {
-                            RECT selectionRect = {
-                                xHex + column * 3 * charWidth,
-                                y,
-                                xHex + (column + 1) * 3 * charWidth,
-                                y + charHeight
-                            };
+                            RECT selectionRect = { xHex + column * 3 * charWidth, y, xHex + (column + 1) * 3 * charWidth, y + charHeight };
                             HBRUSH brush = CreateSolidBrush(cfg.col_selection);
                             FillRect(memoryDC, &selectionRect, brush);
                             DeleteObject(brush);
@@ -1934,9 +1041,7 @@ LRESULT CALLBACK WndProc(
                         char hexText[4];
                         sprintf(hexText, "%02X ", get_byte(&editor, current));
 
-                        /* ========================================================== */
-                        /* ADDED: JPEG Highlighting Logic                             */
-                        /* ========================================================== */
+                        /* JPEG / Syntax Highlighting Logic */
                         size_t window_offset = current - editor.window_start;
                         HighlightCategory cat = get_highlight_category(
                             editor.window, 
@@ -1945,12 +1050,22 @@ LRESULT CALLBACK WndProc(
                         );
 
                         COLORREF active_hex_color = cfg.col_hex;
-                        if (cat == HIGHLIGHT_JPEG_SOI || cat == HIGHLIGHT_JPEG_EOI) {
-                            active_hex_color = RGB(255, 0, 255);   // Magenta for SOI/EOI
-                        } else if (cat == HIGHLIGHT_JPEG_MARKER) {
-                            active_hex_color = RGB(255, 255, 0);   // Yellow for Markers (APP0, DQT, SOF, etc.)
+                        switch (cat) {
+                            case HIGHLIGHT_JPEG_SOI:
+                            case HIGHLIGHT_JPEG_EOI:
+                                active_hex_color = RGB(255, 0, 255);   // Magenta for SOI/EOI
+                                break;
+                            case HIGHLIGHT_JPEG_MARKER:
+                                active_hex_color = RGB(255, 255, 0);   // Yellow for Markers
+                                break;
+                            case HIGHLIGHT_JPEG_DATA:
+                                active_hex_color = RGB(150, 150, 150); // Gray for JPEG Data / Escaped FF00
+                                break;
+                            case HIGHLIGHT_NORMAL:
+                            default:
+                                active_hex_color = cfg.col_hex;        // Default Green
+                                break;
                         }
-                        /* ========================================================== */
 
                         if (cursor) {
                             RECT cursorRect = {
@@ -1964,301 +1079,83 @@ LRESULT CALLBACK WndProc(
                             DeleteObject(brush);
                             SetTextColor(memoryDC, RGB(0, 0, 0)); // Black text on cursor
                         } else {
-                            SetTextColor(memoryDC, active_hex_color); // Use dynamic color
+                            SetTextColor(memoryDC, active_hex_color);
                         }
 
-                        TextOutA(
-                            memoryDC,
-                            xHex + column * 3 * charWidth,
-                            y,
-                            hexText,
-                            3
-                        );
+                        TextOutA(memoryDC, xHex + column * 3 * charWidth, y, hexText, 3);
                     }
                 } else {
                     xAscii = xHex;
                 }
 
-                /* -------------------------------------------------- */
-                /* ASCII                                                */
-                /* -------------------------------------------------- */
+                for (int column = 0; column < bpr; column++) {
+                    size_t current = offset + (size_t)column;
+                    if (current >= virtual_size) break;
 
-                for (
-                    int column = 0;
-                    column < bpr;
-                    column++
-                ) {
-
-                    size_t current =
-                        offset +
-                        (size_t)column;
-
-                    if (current >= virtual_size)
-                        break;
-
-                    int selected =
-                        selectionActive &&
-                        current >= selectionLow &&
-                        current <= selectionHigh;
-
-                    int cursor =
-                        current == editor.cursor &&
-                        editor.edit_mode == 1;
+                    int selected = selectionActive && current >= selectionLow && current <= selectionHigh;
+                    int cursor = current == editor.cursor && editor.edit_mode == 1;
 
                     if (selected) {
-
-                        RECT selectionRect = {
-                            xAscii +
-                                column *
-                                charWidth,
-
-                            y,
-
-                            xAscii +
-                                (column + 1) *
-                                charWidth,
-
-                            y + charHeight
-                        };
-
-                        HBRUSH brush =
-                            CreateSolidBrush(
-                                cfg.col_selection
-                            );
-
-                        FillRect(
-                            memoryDC,
-                            &selectionRect,
-                            brush
-                        );
-
+                        RECT selectionRect = { xAscii + column * charWidth, y, xAscii + (column + 1) * charWidth, y + charHeight };
+                        HBRUSH brush = CreateSolidBrush(cfg.col_selection);
+                        FillRect(memoryDC, &selectionRect, brush);
                         DeleteObject(brush);
                     }
 
-                    uint8_t byte =
-                        get_byte(
-                            &editor,
-                            current
-                        );
-
-                    char character =
-                        isprint(byte)
-                            ? (char)byte
-                            : '.';
+                    uint8_t byte = get_byte(&editor, current);
+                    char character = (char)translate_byte(byte);
 
                     if (cursor) {
-
-                        RECT cursorRect = {
-                            xAscii +
-                                column *
-                                charWidth,
-
-                            y,
-
-                            xAscii +
-                                (column + 1) *
-                                charWidth,
-
-                            y + charHeight
-                        };
-
-                        HBRUSH brush =
-                            CreateSolidBrush(
-                                cfg.col_cursor
-                            );
-
-                        FillRect(
-                            memoryDC,
-                            &cursorRect,
-                            brush
-                        );
-
+                        RECT cursorRect = { xAscii + column * charWidth, y, xAscii + (column + 1) * charWidth, y + charHeight };
+                        HBRUSH brush = CreateSolidBrush(cfg.col_cursor);
+                        FillRect(memoryDC, &cursorRect, brush);
                         DeleteObject(brush);
-
-                        SetTextColor(
-                            memoryDC,
-                            RGB(0, 0, 0)
-                        );
-
+                        SetTextColor(memoryDC, RGB(0, 0, 0));
                     } else {
-
-                        SetTextColor(
-                            memoryDC,
-                            cfg.col_ascii
-                        );
+                        SetTextColor(memoryDC, cfg.col_ascii);
                     }
 
-                    TextOutA(
-                        memoryDC,
-                        xAscii +
-                            column *
-                            charWidth,
-                        y,
-                        &character,
-                        1
-                    );
+                    TextOutA(memoryDC, xAscii + column * charWidth, y, &character, 1);
                 }
-
                 y += charHeight;
             }
 
-            /* ------------------------------------------------------ */
-            /* Status bar                                              */
-            /* ------------------------------------------------------ */
-
-            RECT statusRect = {
-                0,
-                paintRect.bottom - STATUS_HEIGHT,
-                paintRect.right,
-                paintRect.bottom
-            };
-
-            HBRUSH statusBrush =
-                CreateSolidBrush(
-                    cfg.col_status_bg
-                );
-
-            FillRect(
-                memoryDC,
-                &statusRect,
-                statusBrush
-            );
-
+            RECT statusRect = { 0, paintRect.bottom - STATUS_HEIGHT, paintRect.right, paintRect.bottom };
+            HBRUSH statusBrush = CreateSolidBrush(cfg.col_status_bg);
+            FillRect(memoryDC, &statusRect, statusBrush);
             DeleteObject(statusBrush);
 
-            SetTextColor(
-                memoryDC,
-                cfg.col_status_text
-            );
-
+            SetTextColor(memoryDC, cfg.col_status_text);
             char statusText[300];
-
-            sprintf(
-                statusText,
-                " Size: %llu | Off: %08llX | Mode: %s"
-                " | Layout: %s | BPR: %d | Dirty: %llu%s",
-
-                (unsigned long long)
-                    get_effective_size(&editor),
-
-                (unsigned long long)
-                    editor.cursor,
-
-                editor.edit_mode == 0
-                    ? "HEX"
-                    : "TEXT",
-
-                editor.view_layout == 0
-                    ? "HEX+TXT"
-                    : "TXT ONLY",
-
+            sprintf(statusText, " Size: %llu | Off: %08llX | Mode: %s | Layout: %s | BPR: %d | Dirty: %llu%s",
+                (unsigned long long)get_effective_size(&editor),
+                (unsigned long long)editor.cursor,
+                editor.edit_mode == 0 ? "HEX" : "TEXT",
+                editor.view_layout == 0 ? "HEX+TXT" : "TXT ONLY",
                 editor.bytes_per_row,
+                (unsigned long long)editor.tracker.count,
+                editor.memory_mode ? " | MEM" : "");
 
-                (unsigned long long)
-                    editor.tracker.count,
+            TextOutA(memoryDC, 10, paintRect.bottom - 20, statusText, (int)strlen(statusText));
 
-                editor.memory_mode
-                    ? " | MEM"
-                    : ""
-            );
-
-            TextOutA(
-                memoryDC,
-                10,
-                paintRect.bottom - 20,
-                statusText,
-                (int)strlen(statusText)
-            );
-
-            /* ------------------------------------------------------ */
-            /* Read-only / read-write button                         */
-            /* ------------------------------------------------------ */
-
-            RECT buttonRect =
-                GetBtnRect();
-
-            HBRUSH buttonBrush =
-                CreateSolidBrush(
-                    editor.readonly_mode
-                        ? cfg.col_ro_btn
-                        : cfg.col_rw_btn
-                );
-
-            FillRect(
-                memoryDC,
-                &buttonRect,
-                buttonBrush
-            );
-
+            RECT buttonRect = GetBtnRect();
+            HBRUSH buttonBrush = CreateSolidBrush(editor.readonly_mode ? cfg.col_ro_btn : cfg.col_rw_btn);
+            FillRect(memoryDC, &buttonRect, buttonBrush);
             DeleteObject(buttonBrush);
 
-            SetTextColor(
-                memoryDC,
-                RGB(255, 255, 255)
-            );
+            SetTextColor(memoryDC, RGB(255, 255, 255));
+            const char *buttonText = editor.readonly_mode ? "RO" : "RW";
+            DrawTextA(memoryDC, buttonText, -1, &buttonRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-            const char *buttonText =
-                editor.readonly_mode
-                    ? "RO"
-                    : "RW";
-
-            DrawTextA(
-                memoryDC,
-                buttonText,
-                -1,
-                &buttonRect,
-                DT_CENTER |
-                DT_VCENTER |
-                DT_SINGLELINE
-            );
-
-            /* ------------------------------------------------------ */
-            /* Custom Scrollbar                                        */
-            /* ------------------------------------------------------ */
             DrawCustomScrollBar(memoryDC);
 
-            /* ------------------------------------------------------ */
-            /* Blit Memory DC to Screen DC                             */
-            /* ------------------------------------------------------ */
-            BitBlt(
-                hdc,
-                0,
-                0,
-                paintRect.right,
-                paintRect.bottom,
-                memoryDC,
-                0,
-                0,
-                SRCCOPY
-            );
-
-            /* ------------------------------------------------------ */
-            /* Cleanup GDI Objects                                     */
-            /* ------------------------------------------------------ */
-            SelectObject(
-                memoryDC,
-                oldBitmap
-            );
-
-            DeleteObject(
-                memoryBitmap
-            );
-
-            DeleteDC(
-                memoryDC
-            );
-
-            EndPaint(
-                hwnd,
-                &ps
-            );
-
+            BitBlt(hdc, 0, 0, paintRect.right, paintRect.bottom, memoryDC, 0, 0, SRCCOPY);
+            SelectObject(memoryDC, oldBitmap);
+            DeleteObject(memoryBitmap);
+            DeleteDC(memoryDC);
+            EndPaint(hwnd, &ps);
             break;
         }
-
-        /* ========================================================== */
-        /* Mouse                                                       */
-        /* ========================================================== */
 
         case WM_LBUTTONDOWN: {
             int x = LOWORD(lParam);
@@ -2266,7 +1163,6 @@ LRESULT CALLBACK WndProc(
             POINT point = { x, y };
             SetFocus(hwnd);
 
-            // 1. Handle Custom Scrollbar Click/Drag
             if (PtInRect(&g_scrollRect, point)) {
                 RECT thumb = GetScrollThumbRect();
                 if (PtInRect(&thumb, point)) {
@@ -2274,12 +1170,13 @@ LRESULT CALLBACK WndProc(
                     g_scrollDragOffset = point.y - thumb.top;
                     SetCapture(hwnd);
                 } else {
-                    // Clicked on track (Page Up / Page Down)
                     int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+                    size_t page = (size_t)visibleRows * bpr;
                     if (point.y < thumb.top) {
-                        editor.view_offset -= (size_t)visibleRows * bpr;
+                        if (editor.view_offset >= page) editor.view_offset -= page;
+                        else editor.view_offset = 0;
                     } else {
-                        editor.view_offset += (size_t)visibleRows * bpr;
+                        editor.view_offset += page;
                     }
                     ClampViewOffset();
                     InvalidateRect(hwnd, NULL, FALSE);
@@ -2287,7 +1184,6 @@ LRESULT CALLBACK WndProc(
                 return 0;
             }
 
-            // 2. Handle RO/RW Button
             RECT buttonRect = GetBtnRect();
             if (PtInRect(&buttonRect, point)) {
                 editor.readonly_mode = 1 - editor.readonly_mode;
@@ -2304,10 +1200,9 @@ LRESULT CALLBACK WndProc(
                 return 0;
             }
 
-            // 3. Handle Menu Bar
             if (y < MENU_HEIGHT) {
                 if (menu_visible) {
-                    int block = x / (8 * charWidth);
+                    int block = GetMenuBlock(x, charWidth);
                     switch (block) {
                         case 0: DoOpen(hwnd); break;
                         case 1: DoSave(hwnd); break;
@@ -2332,7 +1227,6 @@ LRESULT CALLBACK WndProc(
                 return 0;
             }
 
-            // 4. Handle Grid Hit Test
             int mode;
             size_t offset = GridHitTest(x, y, &mode);
             if (offset != (size_t)-1) {
@@ -2356,484 +1250,141 @@ LRESULT CALLBACK WndProc(
             break;
         }
 
-
         case WM_LBUTTONUP:
             if (g_isDraggingScroll) {
                 g_isDraggingScroll = FALSE;
                 ReleaseCapture();
             }
-
             if (is_dragging) {
                 is_dragging = 0;
                 ReleaseCapture();
-                if (editor.selection_start == editor.selection_end) {
-                    clear_selection(&editor);
-                }
+                if (editor.selection_start == editor.selection_end) clear_selection(&editor);
                 InvalidateRect(hwnd, NULL, FALSE);
             }
             break;
 
-        case WM_MOUSEWHEEL:
-
-            WheelScroll(
-                hwnd,
-                GET_WHEEL_DELTA_WPARAM(wParam)
-            );
-
-            break;
-
-        /* ========================================================== */
-        /* Drag and drop                                               */
-        /* ========================================================== */
+        case WM_MOUSEWHEEL: WheelScroll(hwnd, GET_WHEEL_DELTA_WPARAM(wParam)); break;
 
         case WM_DROPFILES: {
-
-            HDROP drop =
-                (HDROP)wParam;
-
+            HDROP drop = (HDROP)wParam;
             char filename[MAX_PATH];
+            DragQueryFileA(drop, 0, filename, MAX_PATH);
+            cleanup_editor(&editor);
 
-            DragQueryFileA(
-                drop,
-                0,
-                filename,
-                MAX_PATH
-            );
+            if (init_file(&editor, filename) != 0) init_memory_mode(&editor);
 
-            cleanup_editor(
-                &editor
-            );
-
-            if (
-                init_file(
-                    &editor,
-                    filename
-                ) != 0
-            ) {
-
-                init_memory_mode(
-                    &editor
-                );
-            }
-
-            editor.bytes_per_row =
-                cfg.bytes_per_row;
-
-            editor.view_layout =
-                cfg.view_layout;
-
-            editor.edit_mode =
-                cfg.edit_mode;
-
+            editor.bytes_per_row = cfg.bytes_per_row;
+            editor.view_layout = cfg.view_layout;
+            editor.edit_mode = cfg.edit_mode;
             editor.readonly_mode = 0;
-
             editor.cursor = 0;
             editor.view_offset = 0;
-
-            clear_selection(
-                &editor
-            );
-
+            clear_selection(&editor);
             hex_state = 0;
-
             DragFinish(drop);
-
             ClampBPRForLayout(hwnd);
-
             break;
         }
 
-        /* ========================================================== */
-        /* Keyboard                                                     */
-        /* ========================================================== */
-
         case WM_KEYDOWN: {
+            int shift = GetKeyState(VK_SHIFT) & 0x8000;
+            int ctrl = GetKeyState(VK_CONTROL) & 0x8000;
 
-            int shift =
-                GetKeyState(VK_SHIFT) &
-                0x8000;
+            if (ctrl && wParam == 'C') { CopySelectionToClipboard(hwnd); break; }
+            if (ctrl && wParam == 'V') { PasteFromClipboard(hwnd); break; }
+            if (ctrl && wParam == 'Z') { undo(&editor); EnsureCursorVisible(); ClampViewOffset(); InvalidateRect(hwnd, NULL, FALSE); break; }
+            if (ctrl && wParam == 'Y') { redo(&editor); EnsureCursorVisible(); ClampViewOffset(); InvalidateRect(hwnd, NULL, FALSE); break; }
+            if (ctrl && wParam == 'S') { DoSave(hwnd); break; }
 
-            int ctrl =
-                GetKeyState(VK_CONTROL) &
-                0x8000;
-
-            if (ctrl && wParam == 'C') {
-                CopySelectionToClipboard(hwnd);
-                break;
+            if (shift && editor.selection_start == (size_t)-1) {
+                editor.selection_start = editor.cursor;
+                editor.selection_end = editor.cursor;
             }
 
-            if (ctrl && wParam == 'V') {
-                PasteFromClipboard(hwnd);
-                break;
-            }
-
-            if (ctrl && wParam == 'Z') {
-                undo(&editor);
-                EnsureCursorVisible();
-                ClampViewOffset();
-                InvalidateRect(hwnd, NULL, FALSE);
-                break;
-            }
-
-            if (ctrl && wParam == 'Y') {
-                redo(&editor);
-                EnsureCursorVisible();
-                ClampViewOffset();
-                InvalidateRect(hwnd, NULL, FALSE);
-                break;
-            }
-
-            if (ctrl && wParam == 'S') {
-                DoSave(hwnd);
-                break;
-            }
-
-            if (
-                shift &&
-                editor.selection_start ==
-                (size_t)-1
-            ) {
-
-                editor.selection_start =
-                    editor.cursor;
-
-                editor.selection_end =
-                    editor.cursor;
-            }
-
-            size_t old_cursor =
-                editor.cursor;
-
-            size_t virtual_size =
-                get_virtual_size();
-
-            int can_extend =
-                !editor.readonly_mode;
-
-            size_t page =
-                (size_t)bpr *
-                (size_t)visibleRows;
+            size_t old_cursor = editor.cursor;
+            size_t virtual_size = get_virtual_size();
+            int can_extend = !editor.readonly_mode;
+            size_t page = (size_t)bpr * (size_t)visibleRows;
 
             switch (wParam) {
-
-                case VK_UP:
-
-                    if (
-                        editor.cursor >=
-                        (size_t)bpr
-                    ) {
-
-                        editor.cursor -=
-                            (size_t)bpr;
-                    }
-
-                    break;
-
+                case VK_UP: if (editor.cursor >= (size_t)bpr) editor.cursor -= (size_t)bpr; break;
                 case VK_DOWN:
-
-                    if (
-                        can_extend &&
-                        editor.memory_mode
-                    ) {
-
-                        editor.cursor +=
-                            (size_t)bpr;
-
-                    } else if (
-                        editor.cursor +
-                        (size_t)bpr <
-                        virtual_size
-                    ) {
-
-                        editor.cursor +=
-                            (size_t)bpr;
-                    }
-
+                    if (can_extend && editor.memory_mode) editor.cursor += (size_t)bpr;
+                    else if (editor.cursor + (size_t)bpr < virtual_size) editor.cursor += (size_t)bpr;
                     break;
-
-                case VK_LEFT:
-
-                    if (editor.cursor > 0)
-                        editor.cursor--;
-
-                    break;
-
+                case VK_LEFT: if (editor.cursor > 0) editor.cursor--; break;
                 case VK_RIGHT:
-
-                    if (
-                        can_extend &&
-                        editor.memory_mode
-                    ) {
-
-                        editor.cursor++;
-
-                    } else if (
-                        virtual_size > 0 &&
-                        editor.cursor <
-                        virtual_size - 1
-                    ) {
-
-                        editor.cursor++;
-                    }
-
+                    if (can_extend && editor.memory_mode) editor.cursor++;
+                    else if (virtual_size > 0 && editor.cursor < virtual_size - 1) editor.cursor++;
                     break;
-
-                case VK_PRIOR:
-
-                    if (
-                        editor.cursor >=
-                        page
-                    ) {
-
-                        editor.cursor -= page;
-
-                    } else {
-
-                        editor.cursor = 0;
-                    }
-
-                    break;
-
+                case VK_PRIOR: if (editor.cursor >= page) editor.cursor -= page; else editor.cursor = 0; break;
                 case VK_NEXT:
-
-                    if (
-                        can_extend &&
-                        editor.memory_mode
-                    ) {
-
-                        editor.cursor += page;
-
-                    } else if (
-                        editor.cursor +
-                        page <
-                        virtual_size
-                    ) {
-
-                        editor.cursor += page;
-
-                    } else if (
-                        virtual_size > 0
-                    ) {
-
-                        editor.cursor =
-                            virtual_size - 1;
-                    }
-
+                    if (can_extend && editor.memory_mode) editor.cursor += page;
+                    else if (editor.cursor + page < virtual_size) editor.cursor += page;
+                    else if (virtual_size > 0) editor.cursor = virtual_size - 1;
                     break;
-
-                case VK_HOME:
-
-                    editor.cursor = 0;
-
-                    break;
-
-                case VK_END:
-
-                    if (virtual_size > 0)
-                        editor.cursor =
-                            virtual_size - 1;
-
-                    break;
-
-                case VK_F2:
-
-                    DoSave(hwnd);
-
-                    break;
-
-                case VK_F4:
-
-                    editor.view_layout =
-                        1 -
-                        editor.view_layout;
-
-                    ClampBPRForLayout(hwnd);
-
-                    break;
-
-                default:
-                    break;
+                case VK_HOME: editor.cursor = 0; break;
+                case VK_END: if (virtual_size > 0) editor.cursor = virtual_size - 1; break;
+                case VK_F2: DoSave(hwnd); break;
+                case VK_F4: editor.view_layout = 1 - editor.view_layout; ClampBPRForLayout(hwnd); break;
+                default: break;
             }
 
-            if (shift) {
+            if (shift) editor.selection_end = editor.cursor;
+            else if (editor.cursor != old_cursor) clear_selection(&editor);
 
-                editor.selection_end =
-                    editor.cursor;
-
-            } else if (
-                editor.cursor !=
-                old_cursor
-            ) {
-
-                clear_selection(
-                    &editor
-                );
-            }
-
-            if (
-                editor.cursor !=
-                old_cursor
-            ) {
-
-                hex_state = 0;
-            }
+            if (editor.cursor != old_cursor) hex_state = 0;
 
             EnsureCursorVisible();
             ClampViewOffset();
-
-            InvalidateRect(
-                hwnd,
-                NULL,
-                FALSE
-            );
-
+            InvalidateRect(hwnd, NULL, FALSE);
             break;
         }
 
-        /* ========================================================== */
-        /* Text input                                                   */
-        /* ========================================================== */
-
         case WM_CHAR: {
-
-            if (editor.readonly_mode)
-                break;
+            if (editor.readonly_mode) break;
 
             if (editor.edit_mode == 0) {
-
                 int value = -1;
+                char character = (char)wParam;
 
-                char character =
-                    (char)wParam;
-
-                if (
-                    character >= '0' &&
-                    character <= '9'
-                ) {
-
-                    value =
-                        character - '0';
-
-                } else if (
-                    character >= 'a' &&
-                    character <= 'f'
-                ) {
-
-                    value =
-                        character - 'a' +
-                        10;
-
-                } else if (
-                    character >= 'A' &&
-                    character <= 'F'
-                ) {
-
-                    value =
-                        character - 'A' +
-                        10;
-                }
+                if (character >= '0' && character <= '9') value = character - '0';
+                else if (character >= 'a' && character <= 'f') value = character - 'a' + 10;
+                else if (character >= 'A' && character <= 'F') value = character - 'A' + 10;
 
                 if (value != -1) {
-
                     if (hex_state == 0) {
-
-                        temp_hex =
-                            (uint8_t)(
-                                value << 4
-                            );
-
+                        temp_hex = (uint8_t)(value << 4);
                         hex_state = 1;
-
                     } else {
-
-                        uint8_t byte =
-                            temp_hex |
-                            (uint8_t)value;
-
-                        set_byte(
-                            &editor,
-                            editor.cursor,
-                            byte
-                        );
-
+                        uint8_t byte = temp_hex | (uint8_t)value;
+                        set_byte(&editor, editor.cursor, byte);
                         hex_state = 0;
 
-                        size_t new_size =
-                            get_effective_size(
-                                &editor
-                            );
-
-                        if (
-                            editor.memory_mode
-                        ) {
-
-                            editor.cursor++;
-
-                        } else if (
-                            editor.cursor <
-                            new_size
-                        ) {
-
-                            editor.cursor++;
-                        }
+                        size_t new_size = get_effective_size(&editor);
+                        if (editor.memory_mode) editor.cursor++;
+                        else if (editor.cursor < new_size) editor.cursor++;
 
                         EnsureCursorVisible();
                         ClampViewOffset();
-
-                        InvalidateRect(
-                            hwnd,
-                            NULL,
-                            FALSE
-                        );
+                        InvalidateRect(hwnd, NULL, FALSE);
                     }
                 }
-
             } else {
-
                 if (isprint((int)wParam)) {
+                    set_byte(&editor, editor.cursor, (uint8_t)wParam);
 
-                    set_byte(
-                        &editor,
-                        editor.cursor,
-                        (uint8_t)wParam
-                    );
-
-                    size_t new_size =
-                        get_effective_size(
-                            &editor
-                        );
-
-                    if (
-                        editor.memory_mode
-                    ) {
-
-                        editor.cursor++;
-
-                    } else if (
-                        editor.cursor <
-                        new_size
-                    ) {
-
-                        editor.cursor++;
-                    }
+                    size_t new_size = get_effective_size(&editor);
+                    if (editor.memory_mode) editor.cursor++;
+                    else if (editor.cursor < new_size) editor.cursor++;
 
                     EnsureCursorVisible();
                     ClampViewOffset();
-
-                    InvalidateRect(
-                        hwnd,
-                        NULL,
-                        FALSE
-                    );
+                    InvalidateRect(hwnd, NULL, FALSE);
                 }
             }
-
             break;
         }
-
-        /* ========================================================== */
-        /* Shutdown                                                     */
-        /* ========================================================== */
 
         case WM_DESTROY:
             KillTimer(hwnd, 1);
@@ -2850,138 +1401,56 @@ LRESULT CALLBACK WndProc(
 /* WinMain                                                             */
 /* ================================================================== */
 
-int WINAPI WinMain(
-    HINSTANCE hInstance,
-    HINSTANCE hPrevious,
-    LPSTR commandLine,
-    int showCommand)
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevious, LPSTR commandLine, int showCommand)
 {
     (void)hPrevious;
     (void)commandLine;
 
     load_config();
-
-    memset(
-        &editor,
-        0,
-        sizeof(editor)
-    );
+    memset(&editor, 0, sizeof(editor));
 
     if (__argc > 1) {
-
-        if (
-            init_file(
-                &editor,
-                __argv[1]
-            ) != 0
-        ) {
-
-            init_memory_mode(
-                &editor
-            );
-        }
-
+        if (init_file(&editor, __argv[1]) != 0) init_memory_mode(&editor);
     } else {
-
-        init_memory_mode(
-            &editor
-        );
+        init_memory_mode(&editor);
     }
 
-    editor.bytes_per_row =
-        cfg.bytes_per_row;
-
-    editor.view_layout =
-        cfg.view_layout;
-
-    editor.edit_mode =
-        cfg.edit_mode;
-
+    editor.bytes_per_row = cfg.bytes_per_row;
+    editor.view_layout = cfg.view_layout;
+    editor.edit_mode = cfg.edit_mode;
     editor.readonly_mode = 0;
 
     WNDCLASSEXA windowClass = {0};
+    windowClass.cbSize = sizeof(windowClass);
+    windowClass.style = CS_HREDRAW | CS_VREDRAW;
+    windowClass.lpfnWndProc = WndProc;
+    windowClass.hInstance = hInstance;
+    windowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
+    windowClass.hbrBackground = NULL;
+    windowClass.lpszClassName = "HexEditorClass";
 
-    windowClass.cbSize =
-        sizeof(windowClass);
+    RegisterClassExA(&windowClass);
 
-    windowClass.style =
-        CS_HREDRAW |
-        CS_VREDRAW;
-
-    windowClass.lpfnWndProc =
-        WndProc;
-
-    windowClass.hInstance =
-        hInstance;
-
-    windowClass.hCursor =
-        LoadCursor(
-            NULL,
-            IDC_ARROW
-        );
-
-    windowClass.hbrBackground =
-        NULL;
-
-    windowClass.lpszClassName =
-        "HexEditorClass";
-
-    RegisterClassExA(
-        &windowClass
+    HWND hwnd = CreateWindowExA(
+        WS_EX_ACCEPTFILES | WS_EX_COMPOSITED,
+        "HexEditorClass",
+        "Hex Editor",
+        WS_POPUP | WS_THICKFRAME,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        cfg.window_width,  // Uses 900 from config
+        cfg.window_height, // Uses 900 from config
+        NULL, NULL, hInstance, NULL
     );
 
-    HWND hwnd =
-        CreateWindowExA(
-            WS_EX_ACCEPTFILES |
-            WS_EX_COMPOSITED,
+    if (!hwnd) return 1;
 
-            "HexEditorClass",
-
-            "Hex Editor",
-
-            WS_POPUP |
-            WS_THICKFRAME,
-
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-
-            1000,
-            650,
-
-            NULL,
-            NULL,
-            hInstance,
-            NULL
-        );
-
-    if (!hwnd)
-        return 1;
-
-    ShowWindow(
-        hwnd,
-        showCommand
-    );
-
+    ShowWindow(hwnd, showCommand);
     UpdateWindow(hwnd);
 
     MSG message;
-
-    while (
-        GetMessage(
-            &message,
-            NULL,
-            0,
-            0
-        )
-    ) {
-
-        TranslateMessage(
-            &message
-        );
-
-        DispatchMessage(
-            &message
-        );
+    while (GetMessage(&message, NULL, 0, 0)) {
+        TranslateMessage(&message);
+        DispatchMessage(&message);
     }
 
     return (int)message.wParam;

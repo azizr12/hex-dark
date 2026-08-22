@@ -89,6 +89,7 @@ void paste_bytes(HexEditor *ed, size_t offset, const uint8_t *data, size_t lengt
     if (!ed || !data || length == 0 || ed->readonly_mode) return;
     
     uint8_t *old_data = (uint8_t *)malloc(length);
+    if (!old_data) return; // Prevent crash on Out-Of-Memory
     for (size_t i = 0; i < length; i++) old_data[i] = get_byte(ed, offset + i);
     
     if (ed->history.current < ed->history.count) {
@@ -100,7 +101,9 @@ void paste_bytes(HexEditor *ed, size_t offset, const uint8_t *data, size_t lengt
     }
     if (ed->history.count >= ed->history.capacity) {
         size_t new_cap = ed->history.capacity ? ed->history.capacity * 2 : 256;
-        ed->history.entries = (HistoryEntry *)realloc(ed->history.entries, new_cap * sizeof(HistoryEntry));
+        HistoryEntry *new_entries = (HistoryEntry *)realloc(ed->history.entries, new_cap * sizeof(HistoryEntry));
+        if (!new_entries) { free(old_data); return; }
+        ed->history.entries = new_entries;
         ed->history.capacity = new_cap;
     }
     
@@ -109,6 +112,9 @@ void paste_bytes(HexEditor *ed, size_t offset, const uint8_t *data, size_t lengt
     entry->length = length;
     entry->old_data = old_data;
     entry->new_data = (uint8_t *)malloc(length);
+    
+    if (!entry->new_data) { free(old_data); return; }
+    
     memcpy(entry->new_data, data, length);
     ed->history.current++;
     ed->history.count++;
@@ -170,15 +176,26 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value) {
         }
         if (ed->history.count >= ed->history.capacity) {
             size_t new_cap = ed->history.capacity ? ed->history.capacity * 2 : 256;
-            ed->history.entries = (HistoryEntry *)realloc(ed->history.entries, new_cap * sizeof(HistoryEntry));
+            HistoryEntry *new_entries = (HistoryEntry *)realloc(ed->history.entries, new_cap * sizeof(HistoryEntry));
+            if (!new_entries) return; // Bail out safely if OOM
+            ed->history.entries = new_entries;
             ed->history.capacity = new_cap;
         }
-        ed->history.entries[ed->history.current].offset = offset;
-        ed->history.entries[ed->history.current].length = 1;
-        ed->history.entries[ed->history.current].old_data = (uint8_t *)malloc(1);
-        ed->history.entries[ed->history.current].new_data = (uint8_t *)malloc(1);
-        *ed->history.entries[ed->history.current].old_data = old_value;
-        *ed->history.entries[ed->history.current].new_data = value;
+        
+        HistoryEntry *entry = &ed->history.entries[ed->history.current];
+        entry->offset = offset;
+        entry->length = 1;
+        entry->old_data = (uint8_t *)malloc(1);
+        entry->new_data = (uint8_t *)malloc(1);
+        
+        if (!entry->old_data || !entry->new_data) {
+            free(entry->old_data);
+            free(entry->new_data);
+            return;
+        }
+        
+        *entry->old_data = old_value;
+        *entry->new_data = value;
         ed->history.current++;
         ed->history.count++;
     }
@@ -379,4 +396,39 @@ size_t sel_min(HexEditor *ed) {
 size_t sel_max(HexEditor *ed) {
     if (!has_selection(ed)) return (size_t)-1;
     return ed->selection_start > ed->selection_end ? ed->selection_start : ed->selection_end;
+}
+
+/* ================================================================== */
+/*  Syntax Highlighting & Byte Translation                            */
+/* ================================================================== */
+
+uint8_t translate_byte(uint8_t b) {
+    /* Return the character if printable, otherwise return a dot '.' */
+    return (b >= 32 && b <= 126) ? b : '.';
+}
+
+HighlightCategory get_highlight_category(const uint8_t *buffer, size_t offset, size_t buffer_len) {
+    if (offset >= buffer_len) return HIGHLIGHT_NORMAL;
+    
+    uint8_t curr = buffer[offset];
+    uint8_t prev = (offset > 0) ? buffer[offset - 1] : 0;
+    uint8_t next = (offset + 1 < buffer_len) ? buffer[offset + 1] : 0;
+
+    /* Check if current byte is 0xFF (Start of marker) */
+    if (curr == 0xFF && offset + 1 < buffer_len) {
+        if (next == 0xD8) return HIGHLIGHT_JPEG_SOI;
+        if (next == 0xD9) return HIGHLIGHT_JPEG_EOI;
+        if (next != 0x00) return HIGHLIGHT_JPEG_MARKER;
+        return HIGHLIGHT_JPEG_DATA; /* FF 00 is escaped data in JPEG */
+    }
+    
+    /* Check if previous byte was 0xFF (Current byte is the marker type) */
+    if (prev == 0xFF) {
+        if (curr == 0xD8) return HIGHLIGHT_JPEG_SOI;
+        if (curr == 0xD9) return HIGHLIGHT_JPEG_EOI;
+        if (curr == 0x00) return HIGHLIGHT_JPEG_DATA;
+        if (curr != 0x00) return HIGHLIGHT_JPEG_MARKER;
+    }
+
+    return HIGHLIGHT_NORMAL;
 }
