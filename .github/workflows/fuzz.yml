@@ -26,9 +26,7 @@ jobs:
           #ifndef MOCK_WINDOWS_H
           #define MOCK_WINDOWS_H
           #include <stdint.h>
-          #define WINDOW_SIZE 65536
-          #define MAX_PATH_LEN 512
-          #define DEFAULT_TRACKER_CAP 64
+          #include <stdio.h>
           typedef int64_t __int64;
           #define _fseeki64 fseeko
           #define _ftelli64 ftello
@@ -37,8 +35,9 @@ jobs:
 
       - name: Compile Fuzz Target
         run: |
+          # -I. ensures the compiler finds hex.h in the root directory
           # -include forces the mock header to be processed before hex.h/hex.c
-          clang -fsanitize=fuzzer,address,undefined -g -O1 \
+          clang -fsanitize=fuzzer,address,undefined -g -O1 -I. \
             -include fuzz/mock_windows.h \
             fuzz/fuzz_hex.c hex.c -o fuzz_hex_test
 

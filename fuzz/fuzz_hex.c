@@ -4,20 +4,17 @@
 #include <string.h>
 #include <stdio.h>
 
-// Include the mock header first to override Windows-specific types/macros
-#include "mock_windows.h"
-
-// Include the project header (which will pull in the mocked definitions)
+/* The mock header is injected via compiler flag, but we include hex.h normally */
 #include "hex.h"
 
-// Helper to safely read a size_t from fuzz data
+/* Helper to safely read a size_t from fuzz data */
 static const uint8_t* read_size_t(const uint8_t* data, size_t size, size_t* out) {
     if (size < sizeof(size_t)) return data;
     memcpy(out, data, sizeof(size_t));
     return data + sizeof(size_t);
 }
 
-// Helper to safely read a uint8_t from fuzz data
+/* Helper to safely read a uint8_t from fuzz data */
 static const uint8_t* read_u8(const uint8_t* data, size_t size, uint8_t* out) {
     if (size < 1) return data;
     *out = data[0];
@@ -27,17 +24,17 @@ static const uint8_t* read_u8(const uint8_t* data, size_t size, uint8_t* out) {
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (size < 16) return 0;
 
-    // Split data: 1/3 for initial file content, 2/3 for operations
+    /* Split data: 1/3 for initial file content, 2/3 for operations */
     size_t initial_file_size = size / 3;
-    if (initial_file_size > 1024 * 1024) initial_file_size = 1024 * 1024; // Cap at 1MB
+    if (initial_file_size > 1024 * 1024) initial_file_size = 1024 * 1024; /* Cap at 1MB */
 
     const uint8_t *file_data = data;
     const uint8_t *ops_data = data + initial_file_size;
     size_t ops_size = size - initial_file_size;
 
-    // =================================================================
-    // Test 1: Memory Mode
-    // =================================================================
+    /* ================================================================= */
+    /* Test 1: Memory Mode                                               */
+    /* ================================================================= */
     {
         HexEditor ed_mem;
         memset(&ed_mem, 0, sizeof(ed_mem));
@@ -56,7 +53,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             ptr = read_size_t(ptr, remaining, &offset);
             ptr = read_u8(ptr, remaining, &value);
             
-            // Cap offset to prevent excessive memory allocation in fuzzing
+            /* Cap offset to prevent excessive memory allocation in fuzzing */
             if (offset > 1024 * 1024) offset = 1024 * 1024;
             
             set_byte(&ed_mem, offset, value);
@@ -65,15 +62,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         cleanup_editor(&ed_mem);
     }
 
-    // =================================================================
-    // Test 2: File Mode (using fmemopen for safe, in-memory file simulation)
-    // =================================================================
+    /* ================================================================= */
+    /* Test 2: File Mode (using fmemopen for safe, in-memory simulation) */
+    /* ================================================================= */
     {
-        // fmemopen requires a mutable buffer
+        /* fmemopen requires a mutable buffer */
         uint8_t *mutable_file_data = malloc(initial_file_size + 1);
         if (!mutable_file_data) return 0;
         memcpy(mutable_file_data, file_data, initial_file_size);
-        mutable_file_data[initial_file_size] = '\0'; // Null-terminate for safety
+        mutable_file_data[initial_file_size] = '\0'; /* Null-terminate for safety */
         
         FILE *fp = fmemopen(mutable_file_data, initial_file_size, "r+");
         if (!fp) {
@@ -101,14 +98,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             ptr = read_size_t(ptr, remaining, &offset);
             ptr = read_u8(ptr, remaining, &value);
             
-            // Cap offset to prevent massive file extensions in fuzzing
+            /* Cap offset to prevent massive file extensions in fuzzing */
             if (offset > 1024 * 1024) offset = 1024 * 1024;
             
             set_byte(&ed_file, offset, value);
             (void)get_byte(&ed_file, offset);
         }
         
-        // Attempt to save dirty changes (writes to the fmemopen buffer)
+        /* Attempt to save dirty changes (writes to the fmemopen buffer) */
         (void)save_dirty(&ed_file);
         
         cleanup_editor(&ed_file);
