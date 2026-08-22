@@ -80,6 +80,8 @@ typedef struct {
     char filename[MAX_PATH_LEN];
 
     DirtyTracker tracker;
+    EditHistory  history;
+    int          recording_history;
 
     /*
      * Inclusive byte selection.
@@ -103,6 +105,22 @@ typedef struct {
 /* ================================================================== */
 /* Dirty Tracker                                                      */
 /* ================================================================== */
+
+
+typedef struct {
+    size_t offset;
+    size_t length;
+    uint8_t *old_data;
+    uint8_t *new_data;
+} HistoryEntry;
+
+typedef struct {
+    HistoryEntry *entries;
+    size_t        count;
+    size_t        capacity;
+    size_t        current;
+} EditHistory;
+
 
 void init_tracker(
     DirtyTracker *t,
@@ -186,5 +204,9 @@ size_t sel_min(
 size_t sel_max(
     HexEditor *ed
 );
+
+void undo(HexEditor *ed);
+void redo(HexEditor *ed);
+void paste_bytes(HexEditor *ed, size_t offset, const uint8_t *data, size_t length);
 
 #endif /* HEX_EDITOR_H */

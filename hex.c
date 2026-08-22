@@ -32,6 +32,62 @@ static int tracker_reserve(DirtyTracker *t, size_t needed)
     return 0;
 }
 
+void undo(HexEditor *ed) {
+    if (!ed || ed->history.current == 0) return;
+    ed->history.current--;
+    HistoryEntry *entry = &ed->history.entries[ed->history.current];
+    ed->recording_history = 0; // Prevent recursive history recording
+    for (size_t i = 0; i < entry->length; i++) {
+        set_byte(ed, entry->offset + i, entry->old_data[i]);
+    }
+    ed->recording_history = 1;
+}
+
+void redo(HexEditor *ed) {
+    if (!ed || ed->history.current >= ed->history.count) return;
+    HistoryEntry *entry = &ed->history.entries[ed->history.current];
+    ed->recording_history = 0;
+    for (size_t i = 0; i < entry->length; i++) {
+        set_byte(ed, entry->offset + i, entry->new_data[i]);
+    }
+    ed->recording_history = 1;
+    ed->history.current++;
+}
+
+void paste_bytes(HexEditor *ed, size_t offset, const uint8_t *data, size_t length) {
+    if (!ed || !data || length == 0 || ed->readonly_mode) return;
+    
+    uint8_t *old_data = malloc(length);
+    for (size_t i = 0; i < length; i++) old_data[i] = get_byte(ed, offset + i);
+    
+    // Register as one single undoable action
+    if (ed->history.current < ed->history.count) {
+        for (size_t i = ed->history.current; i < ed->history.count; i++) {
+            free(ed->history.entries[i].old_data);
+            free(ed->history.entries[i].new_data);
+        }
+        ed->history.count = ed->history.current;
+    }
+    if (ed->history.count >= ed->history.capacity) {
+        size_t new_cap = ed->history.capacity ? ed->history.capacity * 2 : 256;
+        ed->history.entries = realloc(ed->history.entries, new_cap * sizeof(HistoryEntry));
+        ed->history.capacity = new_cap;
+    }
+    
+    HistoryEntry *entry = &ed->history.entries[ed->history.current];
+    entry->offset = offset;
+    entry->length = length;
+    entry->old_data = old_data;
+    entry->new_data = malloc(length);
+    memcpy(entry->new_data, data, length);
+    ed->history.current++;
+    ed->history.count++;
+
+    ed->recording_history = 0;
+    for (size_t i = 0; i < length; i++) set_byte(ed, offset + i, data[i]);
+    ed->recording_history = 1;
+}
+
 void init_tracker(DirtyTracker *t, size_t initial_cap)
 {
     memset(t, 0, sizeof(*t));
@@ -128,6 +184,8 @@ static int track_byte(
     return 0;
 }
 
+
+
 /* ================================================================== */
 /*  Sliding Window                                                    */
 /* ================================================================== */
@@ -223,72 +281,12 @@ uint8_t get_byte(HexEditor *ed, size_t offset)
 /*  Byte Modification                                                 */
 /* ================================================================== */
 
-void set_byte(HexEditor *ed, size_t offset, uint8_t value)
-{
-    if (!ed)
-        return;
-
-    /*
-     * Read-only mode is enforced here as the final safety layer.
-     */
-    if (ed->readonly_mode)
-        return;
 
     /* -------------------------------------------------------------- */
     /* Memory mode                                                     */
     /* -------------------------------------------------------------- */
 
-    if (ed->memory_mode) {
 
-        if (offset >= ed->mem_capacity) {
-
-            size_t new_capacity =
-                ed->mem_capacity ?
-                ed->mem_capacity :
-                4096;
-
-            while (new_capacity <= offset) {
-
-                if (new_capacity > SIZE_MAX / 2)
-                    return;
-
-                new_capacity *= 2;
-            }
-
-            uint8_t *new_buffer =
-                (uint8_t *)realloc(
-                    ed->mem_buffer,
-                    new_capacity
-                );
-
-            if (!new_buffer)
-                return;
-
-            memset(
-                new_buffer + ed->mem_capacity,
-                0,
-                new_capacity - ed->mem_capacity
-            );
-
-            ed->mem_buffer = new_buffer;
-            ed->mem_capacity = new_capacity;
-        }
-
-        if (offset >= ed->mem_size) {
-
-            memset(
-                ed->mem_buffer + ed->mem_size,
-                0,
-                offset - ed->mem_size
-            );
-
-            ed->mem_size = offset + 1;
-        }
-
-        ed->mem_buffer[offset] = value;
-
-        return;
-    }
 
     /* -------------------------------------------------------------- */
     /* File-backed mode                                                */
@@ -302,53 +300,98 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value)
      * The physical file remains untouched until save_dirty().
      */
 
-    uint8_t original = 0;
-
-    if (offset < ed->original_file_size) {
-        original = get_byte(ed, offset);
-
         /*
          * get_byte() can return the dirty value. For a brand-new
          * modification we need the TRUE original from disk.
          */
-        DirtyByte *existing = find_dirty(ed, offset);
-
-        if (!existing) {
-            if (offset < ed->window_start ||
-                offset >= ed->window_start + ed->window_len) {
-                load_window(ed, offset);
-            }
-
-            if (offset >= ed->window_start &&
-                offset < ed->window_start + ed->window_len) {
-                original =
-                    ed->window[offset - ed->window_start];
-            }
-        } else {
-            original = existing->original;
-        }
-    }
 
     /*
      * Extend the logical document only.
      *
      * The physical file does NOT grow here.
      */
-    if (offset >= ed->file_size)
-        ed->file_size = offset + 1;
 
     /*
      * Track the change in memory.
      *
      * Bytes between old EOF and this offset are implicitly zero.
      */
-    (void)track_byte(
-        ed,
-        offset,
-        original,
-        value
-    );
+
+
+void set_byte(HexEditor *ed, size_t offset, uint8_t value) {
+    if (!ed || ed->readonly_mode) return;
+
+    uint8_t old_value = get_byte(ed, offset);
+    if (old_value == value) return; // No actual change
+
+    if (ed->recording_history) {
+        // Push to history before modifying
+        HistoryEntry entry;
+        entry.offset = offset;
+        entry.length = 1;
+        entry.old_data = &old_value;
+        entry.new_data = &value;
+        
+        // Inline push_history logic for single byte to avoid extra allocs
+        if (ed->history.current < ed->history.count) {
+            for (size_t i = ed->history.current; i < ed->history.count; i++) {
+                free(ed->history.entries[i].old_data);
+                free(ed->history.entries[i].new_data);
+            }
+            ed->history.count = ed->history.current;
+        }
+        if (ed->history.count >= ed->history.capacity) {
+            size_t new_cap = ed->history.capacity ? ed->history.capacity * 2 : 256;
+            ed->history.entries = realloc(ed->history.entries, new_cap * sizeof(HistoryEntry));
+            ed->history.capacity = new_cap;
+        }
+        ed->history.entries[ed->history.current].offset = offset;
+        ed->history.entries[ed->history.current].length = 1;
+        ed->history.entries[ed->history.current].old_data = malloc(1);
+        ed->history.entries[ed->history.current].new_data = malloc(1);
+        *ed->history.entries[ed->history.current].old_data = old_value;
+        *ed->history.entries[ed->history.current].new_data = value;
+        ed->history.current++;
+        ed->history.count++;
+    }
+
+    if (ed->memory_mode) {
+        if (offset >= ed->mem_capacity) {
+            size_t new_capacity = ed->mem_capacity ? ed->mem_capacity : 4096;
+            while (new_capacity <= offset) new_capacity *= 2;
+            uint8_t *new_buffer = realloc(ed->mem_buffer, new_capacity);
+            if (!new_buffer) return;
+            memset(new_buffer + ed->mem_capacity, 0, new_capacity - ed->mem_capacity);
+            ed->mem_buffer = new_buffer;
+            ed->mem_capacity = new_capacity;
+        }
+        if (offset >= ed->mem_size) {
+            memset(ed->mem_buffer + ed->mem_size, 0, offset - ed->mem_size);
+            ed->mem_size = offset + 1;
+        }
+        ed->mem_buffer[offset] = value;
+        return;
+    }
+
+    uint8_t original = 0;
+    if (offset < ed->original_file_size) {
+        DirtyByte *existing = find_dirty(ed, offset);
+        if (existing) {
+            original = existing->original;
+        } else {
+            if (offset < ed->window_start || offset >= ed->window_start + ed->window_len) {
+                load_window(ed, offset);
+            }
+            if (offset >= ed->window_start && offset < ed->window_start + ed->window_len) {
+                original = ed->window[offset - ed->window_start];
+            }
+        }
+    }
+
+    if (offset >= ed->file_size) ed->file_size = offset + 1;
+    (void)track_byte(ed, offset, original, value);
 }
+
 
 /* ================================================================== */
 /*  Save                                                               */
@@ -605,6 +648,12 @@ int init_file(HexEditor *ed, const char *filename)
     ed->selection_end = (size_t)-1;
     ed->selection_origin = SELECTION_NONE;
 
+    ed->history.entries = NULL;
+    ed->history.count = 0;
+    ed->history.capacity = 0;
+    ed->history.current = 0;
+    ed->recording_history = 1;
+
     /*
      * IMPORTANT:
      *
@@ -624,78 +673,124 @@ int init_file(HexEditor *ed, const char *filename)
 }
 
 /* ================================================================== */
-/*  Memory Mode                                                       */
+/*  Initialization                                                    */
 /* ================================================================== */
 
-void init_memory_mode(HexEditor *ed)
+int init_file(HexEditor *ed, const char *filename)
 {
+    if (!ed || !filename)
+        return -1;
+
     memset(ed, 0, sizeof(*ed));
 
-    ed->memory_mode = 1;
-
-    ed->mem_capacity = 4096;
-    ed->mem_size = 0;
-
-    ed->mem_buffer =
-        (uint8_t *)calloc(
-            ed->mem_capacity,
-            1
-        );
-
-    ed->bytes_per_row = 16;
-    ed->edit_mode = 0;
-    ed->view_layout = 0;
+    /*
+     * Open existing file for read/write.
+     */
+    ed->fp = fopen(filename, "r+b");
 
     /*
-     * Memory documents also start read-only.
+     * If it doesn't exist or is locked, create/open read-only.
+     * This prevents accidental truncation of protected files.
      */
-    ed->readonly_mode = 1;
+    if (!ed->fp) {
+        ed->fp = fopen(filename, "rb");
+        if (ed->fp) {
+            ed->readonly_mode = 1;
+        } else {
+            ed->fp = fopen(filename, "w+b");
+            if (!ed->fp)
+                return -1;
+        }
+    }
 
+    /*
+     * Determine physical file size using 64-bit Windows
+     * file positioning.
+     */
+    if (_fseeki64(ed->fp, 0, SEEK_END) != 0) {
+        fclose(ed->fp);
+        ed->fp = NULL;
+        return -1;
+    }
+
+    __int64 end = _ftelli64(ed->fp);
+
+    if (end < 0 ||
+        (uintmax_t)end > (uintmax_t)SIZE_MAX) {
+        fclose(ed->fp);
+        ed->fp = NULL;
+        return -1;
+    }
+
+    ed->file_size = (size_t)end;
+    ed->original_file_size = ed->file_size;
+
+    if (_fseeki64(ed->fp, 0, SEEK_SET) != 0) {
+        fclose(ed->fp);
+        ed->fp = NULL;
+        return -1;
+    }
+
+    strncpy(ed->filename, filename, MAX_PATH_LEN - 1);
+    ed->filename[MAX_PATH_LEN - 1] = '\0';
+
+    ed->memory_mode = 0;
     ed->cursor = 0;
     ed->view_offset = 0;
-
+    ed->window_start = 0;
+    ed->window_len = 0;
     ed->selection_start = (size_t)-1;
     ed->selection_end = (size_t)-1;
     ed->selection_origin = SELECTION_NONE;
 
-    strncpy(
-        ed->filename,
-        "untitled.bin",
-        MAX_PATH_LEN - 1
-    );
+    /*
+     * IMPORTANT:
+     * Newly-opened files start read-only.
+     */
+    ed->readonly_mode = 1;
 
-    ed->filename[MAX_PATH_LEN - 1] = '\0';
+    /* ========================================================== */
+    /* ADDED: Initialize Edit History                             */
+    /* ========================================================== */
+    ed->history.entries = NULL;
+    ed->history.count = 0;
+    ed->history.capacity = 0;
+    ed->history.current = 0;
+    ed->recording_history = 1;
+    /* ========================================================== */
 
-    init_tracker(
-        &ed->tracker,
-        DEFAULT_TRACKER_CAP
-    );
+    init_tracker(&ed->tracker, DEFAULT_TRACKER_CAP);
+
+    if (!ed->tracker.items)
+        return -1;
+
+    return 0;
 }
 
 /* ================================================================== */
 /*  Cleanup                                                            */
 /* ================================================================== */
 
-void cleanup_editor(HexEditor *ed)
-{
-    if (!ed)
-        return;
-
-    if (ed->fp) {
-        fclose(ed->fp);
-        ed->fp = NULL;
-    }
-
+void cleanup_editor(HexEditor *ed) {
+    if (!ed) return;
+    if (ed->fp) { fclose(ed->fp); ed->fp = NULL; }
+    
     free(ed->tracker.items);
-    ed->tracker.items = NULL;
-    ed->tracker.count = 0;
-    ed->tracker.capacity = 0;
-
+    ed->tracker.items = NULL; ed->tracker.count = 0; ed->tracker.capacity = 0;
+    
     free(ed->mem_buffer);
-    ed->mem_buffer = NULL;
+    ed->mem_buffer = NULL; ed->mem_size = 0; ed->mem_capacity = 0;
 
-    ed->mem_size = 0;
-    ed->mem_capacity = 0;
+    for (size_t i = 0; i < ed->history.count; i++) {
+        free(ed->history.entries[i].old_data);
+        free(ed->history.entries[i].new_data);
+    }
+    free(ed->history.entries);
+    ed->history.entries = NULL;
+    ed->history.count = 0;
+    ed->history.capacity = 0;
+    ed->history.current = 0;
+    ed->recording_history = 1;
 }
 
 /* ================================================================== */

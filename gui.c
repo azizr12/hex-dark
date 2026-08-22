@@ -1242,180 +1242,62 @@ static void EnsureCursorVisible(void)
 /* Clipboard                                                           */
 /* ================================================================== */
 
-static void CopySelectionToClipboard(HWND hwnd)
-{
-    if (!has_selection(&editor))
-        return;
-
-    size_t size =
-        get_effective_size(&editor);
-
-    if (size == 0)
-        return;
-
-    size_t low =
-        sel_min(&editor);
-
-    size_t high =
-        sel_max(&editor);
-
-    if (low >= size)
-        return;
-
-    if (high >= size)
-        high = size - 1;
-
-    if (low > high)
-        return;
-
-    int bpr =
-        editor.bytes_per_row > 0
-            ? editor.bytes_per_row
-            : 16;
-
-    size_t first_row =
-        (low / (size_t)bpr) *
-        (size_t)bpr;
-
-    size_t last_row =
-        (high / (size_t)bpr) *
-        (size_t)bpr;
-
-    size_t total_rows =
-        (last_row - first_row) /
-        (size_t)bpr +
-        1;
-
-    size_t per_row =
-        12 +
-        (size_t)bpr * 3 +
-        4;
-
-    char *buffer =
-        (char *)malloc(
-            total_rows * per_row + 1
-        );
-
-    if (!buffer)
-        return;
-
-    char *p = buffer;
-
-    for (
-        size_t row = first_row;
-        row <= last_row;
-        row += (size_t)bpr
-    ) {
-
-        p += sprintf(
-            p,
-            "%08llX ",
-            (unsigned long long)row
-        );
-
-        for (int j = 0; j < bpr; j++) {
-
-            size_t off =
-                row + (size_t)j;
-
-            if (
-                off >= low &&
-                off <= high &&
-                off < size
-            ) {
-
-                p += sprintf(
-                    p,
-                    "%02X",
-                    get_byte(
-                        &editor,
-                        off
-                    )
-                );
-
+static void PasteFromClipboard(HWND hwnd) {
+    if (editor.readonly_mode) return;
+    if (!OpenClipboard(hwnd)) return;
+    
+    HANDLE hData = GetClipboardData(CF_TEXT);
+    if (!hData) { CloseClipboard(); return; }
+    
+    char *clipText = (char *)GlobalLock(hData);
+    if (!clipText) { CloseClipboard(); return; }
+    
+    size_t len = strlen(clipText);
+    uint8_t *bytes = (uint8_t *)malloc(len / 2 + 1);
+    if (!bytes) { GlobalUnlock(hData); CloseClipboard(); return; }
+    
+    size_t byteCount = 0;
+    uint8_t currentByte = 0;
+    int nibbleCount = 0;
+    
+    for (size_t i = 0; i < len; i++) {
+        char c = clipText[i];
+        int val = -1;
+        if (c >= '0' && c <= '9') val = c - '0';
+        else if (c >= 'a' && c <= 'f') val = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') val = c - 'A' + 10;
+        
+        if (val != -1) {
+            if (nibbleCount == 0) {
+                currentByte = (uint8_t)(val << 4);
+                nibbleCount = 1;
             } else {
-
-                p += sprintf(
-                    p,
-                    "  "
-                );
+                currentByte |= (uint8_t)val;
+                bytes[byteCount++] = currentByte;
+                nibbleCount = 0;
             }
         }
-
-        *p++ = ' ';
-
-        for (int j = 0; j < bpr; j++) {
-
-            size_t off =
-                row + (size_t)j;
-
-            if (
-                off >= low &&
-                off <= high &&
-                off < size
-            ) {
-
-                uint8_t c =
-                    get_byte(
-                        &editor,
-                        off
-                    );
-
-                *p++ =
-                    isprint(c)
-                        ? (char)c
-                        : '.';
-
-            } else {
-
-                *p++ = ' ';
-            }
-        }
-
-        *p++ = '\r';
-        *p++ = '\n';
     }
-
-    *p = '\0';
-
-    if (OpenClipboard(hwnd)) {
-
-        EmptyClipboard();
-
-        size_t length =
-            (size_t)(p - buffer) + 1;
-
-        HGLOBAL memory =
-            GlobalAlloc(
-                GMEM_MOVEABLE,
-                length
-            );
-
-        if (memory) {
-
-            char *destination =
-                (char *)GlobalLock(memory);
-
-            if (destination) {
-                memcpy(
-                    destination,
-                    buffer,
-                    length
-                );
-
-                GlobalUnlock(memory);
-
-                SetClipboardData(
-                    CF_TEXT,
-                    memory
-                );
-            }
-        }
-
-        CloseClipboard();
+    
+    GlobalUnlock(hData);
+    CloseClipboard();
+    
+    if (byteCount == 0) { free(bytes); return; }
+    
+    size_t paste_offset = editor.cursor;
+    if (has_selection(&editor)) {
+        paste_offset = sel_min(&editor); // Overwrite selection if active
     }
-
-    free(buffer);
+    
+    paste_bytes(&editor, paste_offset, bytes, byteCount);
+    
+    editor.cursor = paste_offset + byteCount;
+    clear_selection(&editor);
+    EnsureCursorVisible();
+    UpdateVScroll(hwnd);
+    InvalidateRect(hwnd, NULL, FALSE);
+    
+    free(bytes);
 }
 
 /* ================================================================== */
@@ -2167,9 +2049,7 @@ LRESULT CALLBACK WndProc(
                     cfg.col_menu_text
                 );
 
-                const char *menuText =
-                    "[O]pen  [S]ave  [M]ode  "
-                    "[B]PR  [V]iew  [X]xit";
+                const char *menuText = "[O]pen [S]ave [U]ndo [R]edo [C]opy [P]aste [M]ode [B]PR [V]iew [X]xit";
 
                 TextOutA(
                     memoryDC,
@@ -2768,54 +2648,19 @@ LRESULT CALLBACK WndProc(
                         (8 * charWidth);
 
                     switch (block) {
-
-                        case 0:
-                            DoOpen(hwnd);
-                            break;
-
-                        case 1:
-                            DoSave(hwnd);
-                            break;
-
-                        case 2:
-
-                            editor.edit_mode =
-                                1 -
-                                editor.edit_mode;
-
-                            hex_state = 0;
-
-                            break;
-
-                        case 3:
-                            CycleBPR(hwnd);
-                            break;
-
-                        case 4:
-
-                            editor.view_layout =
-                                1 -
-                                editor.view_layout;
-
-                            ClampBPRForLayout(hwnd);
-
-                            break;
-
-                        case 5:
-                            DestroyWindow(hwnd);
-                            break;
-
+                        case 0: DoOpen(hwnd); break;
+                        case 1: DoSave(hwnd); break;
+                        case 2: undo(&editor); EnsureCursorVisible(); UpdateVScroll(hwnd); InvalidateRect(hwnd, NULL, FALSE); break;
+                        case 3: redo(&editor); EnsureCursorVisible(); UpdateVScroll(hwnd); InvalidateRect(hwnd, NULL, FALSE); break;
+                        case 4: CopySelectionToClipboard(hwnd); break;
+                        case 5: PasteFromClipboard(hwnd); break;
+                        case 6: editor.edit_mode = 1 - editor.edit_mode; hex_state = 0; break;
+                        case 7: CycleBPR(hwnd); break;
+                        case 8: editor.view_layout = 1 - editor.view_layout; ClampBPRForLayout(hwnd); break;
+                        case 9: DestroyWindow(hwnd); break;
                         default:
-
                             ReleaseCapture();
-
-                            SendMessage(
-                                hwnd,
-                                WM_NCLBUTTONDOWN,
-                                HTCAPTION,
-                                0
-                            );
-
+                            SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
                             break;
                     }
 
@@ -3015,23 +2860,34 @@ LRESULT CALLBACK WndProc(
                 GetKeyState(VK_CONTROL) &
                 0x8000;
 
-            if (
-                ctrl &&
-                wParam == 'C'
-            ) {
-
+            if (ctrl && wParam == 'C') {
                 CopySelectionToClipboard(hwnd);
-
                 break;
             }
 
-            if (
-                ctrl &&
-                wParam == 'S'
-            ) {
+            if (ctrl && wParam == 'V') {
+                PasteFromClipboard(hwnd);
+                break;
+            }
 
+            if (ctrl && wParam == 'Z') {
+                undo(&editor);
+                EnsureCursorVisible();
+                UpdateVScroll(hwnd);
+                InvalidateRect(hwnd, NULL, FALSE);
+                break;
+            }
+
+            if (ctrl && wParam == 'Y') {
+                redo(&editor);
+                EnsureCursorVisible();
+                UpdateVScroll(hwnd);
+                InvalidateRect(hwnd, NULL, FALSE);
+                break;
+            }
+
+            if (ctrl && wParam == 'S') {
                 DoSave(hwnd);
-
                 break;
             }
 
