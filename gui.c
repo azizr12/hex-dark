@@ -1243,6 +1243,94 @@ static void EnsureCursorVisible(void)
 /* Clipboard                                                           */
 /* ================================================================== */
 
+/* ================================================================== */
+/* Clipboard                                                           */
+/* ================================================================== */
+
+static void CopySelectionToClipboard(HWND hwnd)
+{
+    if (!has_selection(&editor))
+        return;
+
+    size_t size = get_effective_size(&editor);
+    if (size == 0)
+        return;
+
+    size_t low = sel_min(&editor);
+    size_t high = sel_max(&editor);
+
+    if (low >= size)
+        return;
+
+    if (high >= size)
+        high = size - 1;
+
+    if (low > high)
+        return;
+
+    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+
+    size_t first_row = (low / (size_t)bpr) * (size_t)bpr;
+    size_t last_row = (high / (size_t)bpr) * (size_t)bpr;
+    size_t total_rows = (last_row - first_row) / (size_t)bpr + 1;
+    size_t per_row = 12 + (size_t)bpr * 3 + 4;
+
+    char *buffer = (char *)malloc(total_rows * per_row + 1);
+    if (!buffer)
+        return;
+
+    char *p = buffer;
+
+    for (size_t row = first_row; row <= last_row; row += (size_t)bpr) {
+        p += sprintf(p, "%08llX ", (unsigned long long)row);
+
+        for (int j = 0; j < bpr; j++) {
+            size_t off = row + (size_t)j;
+            if (off >= low && off <= high && off < size) {
+                p += sprintf(p, "%02X", get_byte(&editor, off));
+            } else {
+                p += sprintf(p, "  ");
+            }
+        }
+
+        *p++ = ' ';
+
+        for (int j = 0; j < bpr; j++) {
+            size_t off = row + (size_t)j;
+            if (off >= low && off <= high && off < size) {
+                uint8_t c = get_byte(&editor, off);
+                *p++ = isprint(c) ? (char)c : '.';
+            } else {
+                *p++ = ' ';
+            }
+        }
+
+        *p++ = '\r';
+        *p++ = '\n';
+    }
+
+    *p = '\0';
+
+    if (OpenClipboard(hwnd)) {
+        EmptyClipboard();
+        size_t length = (size_t)(p - buffer) + 1;
+        HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, length);
+
+        if (memory) {
+            char *destination = (char *)GlobalLock(memory);
+            if (destination) {
+                memcpy(destination, buffer, length);
+                GlobalUnlock(memory);
+                SetClipboardData(CF_TEXT, memory);
+            }
+        }
+        CloseClipboard();
+    }
+
+    free(buffer);
+}
+
+
 static void PasteFromClipboard(HWND hwnd) {
     if (editor.readonly_mode) return;
     if (!OpenClipboard(hwnd)) return;
