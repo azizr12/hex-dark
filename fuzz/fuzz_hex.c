@@ -4,7 +4,6 @@
 #include <string.h>
 #include <stdio.h>
 
-/* The mock header is injected via compiler flag, but we include hex.h normally */
 #include "hex.h"
 
 /* Helper to safely read a size_t from fuzz data */
@@ -108,8 +107,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         /* Attempt to save dirty changes (writes to the fmemopen buffer) */
         (void)save_dirty(&ed_file);
         
+        /* 
+         * cleanup_editor automatically calls fclose(ed_file.fp). 
+         * We must NOT call fclose(fp) again to avoid a double-free.
+         */
         cleanup_editor(&ed_file);
-        fclose(fp);
         free(mutable_file_data);
     }
 
