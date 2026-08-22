@@ -1,24 +1,27 @@
-#ifndef PLUGIN_H
-#define PLUGIN_H
+#include "plugin.h"
 
-#include <stdint.h>
-#include <stddef.h>
+HighlightCategory get_highlight_category(const uint8_t *buffer, size_t offset, size_t buffer_len) {
+    if (!buffer || offset >= buffer_len) return HIGHLIGHT_NORMAL;
 
-typedef enum {
-    HIGHLIGHT_NORMAL = 0,
-    HIGHLIGHT_JPEG_SOI,      // FF D8 (Start of Image)
-    HIGHLIGHT_JPEG_EOI,      // FF D9 (End of Image)
-    HIGHLIGHT_JPEG_MARKER,   // FF xx (Segment headers like APP0, DQT, SOF, SOS)
-    HIGHLIGHT_JPEG_DATA      // Payload data between markers (optional for future use)
-} HighlightCategory;
+    uint8_t current = buffer[offset];
+    uint8_t next    = (offset + 1 < buffer_len) ? buffer[offset + 1] : 0x00;
+    uint8_t prev    = (offset > 0)            ? buffer[offset - 1] : 0x00;
 
-/* 
- * Categorizes a byte for syntax highlighting.
- * Pass the current window buffer, the offset within that buffer, and the buffer length.
- */
-HighlightCategory get_highlight_category(const uint8_t *buffer, size_t offset, size_t buffer_len);
+    if (current == 0xFF && next == 0xD8) return HIGHLIGHT_JPEG_SOI;
+    if (current == 0xFF && next == 0xD9) return HIGHLIGHT_JPEG_EOI;
+    if (current == 0xFF && next != 0x00 && next != 0xD8 && next != 0xD9) return HIGHLIGHT_JPEG_MARKER;
+    
+    if (prev == 0xFF && current != 0x00) {
+        if (current == 0xD8) return HIGHLIGHT_JPEG_SOI;
+        if (current == 0xD9) return HIGHLIGHT_JPEG_EOI;
+        return HIGHLIGHT_JPEG_MARKER;
+    }
 
-/* Example translation function */
-uint8_t translate_byte(uint8_t b);
+    return HIGHLIGHT_NORMAL;
+}
 
-#endif /* PLUGIN_H */
+uint8_t translate_byte(uint8_t b) {
+    if (b >= 'a' && b <= 'z') return 'a' + (b - 'a' + 13) % 26;
+    if (b >= 'A' && b <= 'Z') return 'A' + (b - 'A' + 13) % 26;
+    return b;
+}
