@@ -23,7 +23,7 @@
 #define MENU_HEIGHT     35
 #define STATUS_HEIGHT   28
 #define BTN_W           64
-#define BTN_H           20
+#define BTN_H           24
 #define BORDER_PX       5
 
 /* ================================================================== */
@@ -206,40 +206,12 @@ static void ini_put_color(const char *section,
 
 static void generate_default_ini(void)
 {
-    WritePrivateProfileStringA(
-        "Window",
-        "rows",
-        "32",
-        ini_path
-    );
-
-    WritePrivateProfileStringA(
-        "Window",
-        "aspect_w",
-        "32",
-        ini_path
-    );
-
-    WritePrivateProfileStringA(
-        "Window",
-        "aspect_h",
-        "32",
-        ini_path
-    );
-
-    WritePrivateProfileStringA(
-        "Font",
-        "name",
-        "Consolas",
-        ini_path
-    );
-
-    WritePrivateProfileStringA(
-        "Font",
-        "size",
-        "32",
-        ini_path
-    );
+    WritePrivateProfileStringA("Window", "rows", "20", ini_path);        // Changed from 32 to 20
+    WritePrivateProfileStringA("Window", "aspect_w", "16", ini_path);    // Changed from 32 to 16
+    WritePrivateProfileStringA("Window", "aspect_h", "9", ini_path);     // Changed from 32 to 9
+    
+    WritePrivateProfileStringA("Font", "name", "Consolas", ini_path);
+    WritePrivateProfileStringA("Font", "size", "16", ini_path);          // Changed from 32 to 16
 
     /* Colors are now written as #RRGGBB. */
 
@@ -1255,17 +1227,11 @@ static RECT GetBtnRect(void)
 {
     RECT r;
 
-    r.right =
-        clientRect.right - 8;
-
-    r.left =
-        r.right - BTN_W;
-
-    r.bottom =
-        clientRect.bottom - 4;
-
-    r.top =
-        r.bottom - BTN_H;
+    // Position cleanly inside the bottom right area
+    r.right = fullClientRect.right - 12;
+    r.left = r.right - BTN_W;
+    r.bottom = fullClientRect.bottom - 6;
+    r.top = r.bottom - BTN_H;
 
     if (r.left < 0) {
         r.left = 0;
@@ -2979,8 +2945,8 @@ int WINAPI WinMain(
             CW_USEDEFAULT,
             CW_USEDEFAULT,
 
-            960,
-            1080,
+            1000,
+            650,
 
             NULL,
             NULL,
