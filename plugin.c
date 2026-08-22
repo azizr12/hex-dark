@@ -1,4 +1,4 @@
-#include "plugin.h"
+#include "hex.h"
 
 /* ================================================================== */
 /* JPEG Structure Highlighting Logic                                  */
@@ -24,12 +24,11 @@ HighlightCategory get_highlight_category(const uint8_t *buffer, size_t offset, s
     }
 
     // 3. JPEG Markers: FF xx (where xx != 00, D8, D9)
-    // Note: FF 00 is an escaped FF in JPEG compressed data, NOT a marker.
     if (current == 0xFF && next != 0x00 && next != 0xD8 && next != 0xD9) {
         return HIGHLIGHT_JPEG_MARKER;
     }
 
-    // 4. The second byte of a marker pair (e.g., the 'D8' in 'FF D8')
+    // 4. The second byte of a marker pair
     if (prev == 0xFF && current != 0x00) {
         if (current == 0xD8) return HIGHLIGHT_JPEG_SOI;
         if (current == 0xD9) return HIGHLIGHT_JPEG_EOI;
@@ -47,5 +46,5 @@ HighlightCategory get_highlight_category(const uint8_t *buffer, size_t offset, s
 uint8_t translate_byte(uint8_t b) {
     if (b >= 'a' && b <= 'z') return 'a' + (b - 'a' + 13) % 26;
     if (b >= 'A' && b <= 'Z') return 'A' + (b - 'A' + 13) % 26;
-    return b; // Pass through non-letters
+    return b;
 }

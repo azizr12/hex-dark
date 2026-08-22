@@ -91,4 +91,19 @@ void undo(HexEditor *ed);
 void redo(HexEditor *ed);
 void paste_bytes(HexEditor *ed, size_t offset, const uint8_t *data, size_t length);
 
+/* ================================================================== */
+/* Plugin / Highlighting                                               */
+/* ================================================================== */
+
+typedef enum {
+    HIGHLIGHT_NORMAL = 0,
+    HIGHLIGHT_JPEG_SOI,
+    HIGHLIGHT_JPEG_EOI,
+    HIGHLIGHT_JPEG_MARKER,
+    HIGHLIGHT_JPEG_DATA
+} HighlightCategory;
+
+HighlightCategory get_highlight_category(const uint8_t *buffer, size_t offset, size_t buffer_len);
+uint8_t translate_byte(uint8_t b);
+
 #endif /* HEX_EDITOR_H */
