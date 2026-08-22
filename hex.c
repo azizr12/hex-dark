@@ -258,19 +258,56 @@ HexError init_file(HexEditor *ed, const char *filename) {
     return HEX_OK;
 }
 
-void init_memory_mode(HexEditor *ed) {
+void init_memory_mode(HexEditor *ed)
+{
     memset(ed, 0, sizeof(*ed));
+
     ed->memory_mode = 1;
-    ed->mem_capacity = 4096; ed->mem_size = 0;
-    ed->mem_buffer = (uint8_t *)calloc(ed->mem_capacity, 1);
-    ed->bytes_per_row = 16; ed->edit_mode = 0; ed->view_layout = 0;
+
+    ed->mem_capacity = 4096;
+    ed->mem_size = 256; /* We are starting with exactly 256 bytes */
+
+    ed->mem_buffer =
+        (uint8_t *)calloc(
+            ed->mem_capacity,
+            1
+        );
+
+    /* SMART FILL: Pre-fill the buffer with 00 to FF */
+    if (ed->mem_buffer) {
+        for (size_t i = 0; i < 256; ++i) {
+            ed->mem_buffer[i] = (uint8_t)i;
+        }
+    }
+
+    ed->bytes_per_row = 16;
+    ed->edit_mode = 0;
+    ed->view_layout = 0;
+
+    /*
+     * Memory documents also start read-only.
+     */
     ed->readonly_mode = 1;
-    ed->cursor = 0; ed->view_offset = 0;
-    ed->selection_start = (size_t)-1; ed->selection_end = (size_t)-1;
+
+    ed->cursor = 0;
+    ed->view_offset = 0;
+
+    ed->selection_start = (size_t)-1;
+    ed->selection_end = (size_t)-1;
     ed->selection_origin = SELECTION_NONE;
-    strncpy(ed->filename, "untitled.bin", MAX_PATH_LEN - 1);
+
+    strncpy(
+        ed->filename,
+        "untitled.bin",
+        MAX_PATH_LEN - 1
+    );
+
     ed->filename[MAX_PATH_LEN - 1] = '\0';
-    init_tracker(&ed->tracker, DEFAULT_TRACKER_CAP);
+
+    init_tracker(
+        &ed->tracker,
+        DEFAULT_TRACKER_CAP
+    );
 }
 
 void cleanup_editor(HexEditor *ed) {

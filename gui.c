@@ -785,32 +785,15 @@ static size_t GridHitTest(int x, int y, int *out_mode)
 static int GetMenuBlock(int x, int cw) {
     if (cw <= 0) return -1;
     
-    // The menu text starts at x = 15 in WM_PAINT
     int charIndex = (x - 15) / cw;
     if (charIndex < 0) return -1;
 
-    // Exact character lengths of each menu item including trailing space
-    static const int menu_lengths[] = { 
-        7,  // [O]pen 
-        7,  // [S]ave 
-        7,  // [U]ndo 
-        7,  // [R]edo 
-        7,  // [C]opy 
-        8,  // [P]aste 
-        8,  // [I]nput (Replaces Mode for typing)
-        6,  // [B]PR 
-        7,  // [M]ode  (Replaces View for layout)
-        6   // [X]xit
-    };
-    int num_items = sizeof(menu_lengths) / sizeof(menu_lengths[0]);
+    int block = charIndex / 8;
     
-    int current_start = 0;
-    for (int i = 0; i < num_items; i++) {
-        if (charIndex >= current_start && charIndex < current_start + menu_lengths[i]) {
-            return i;
-        }
-        current_start += menu_lengths[i];
+    if (block >= 0 && block <= 7) {
+        return block;
     }
+    
     return -1;
 }
 
@@ -985,7 +968,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
             if (menu_visible) {
                 SetTextColor(memoryDC, cfg.col_menu_text);
-                const char *menuText = "[O]pen  [S]ave  [U]ndo  [R]edo  [C]opy  [P]aste [I]nput [B]PR   [M]ode  [X]xit  ";
+                const char *menuText =
+                    "[O]pen  [S]ave  [U]ndo  "
+                    "[R]edo  [M]ode  [B]PR   "
+                    "[V]iew  [X]xit  ";
                 TextOutA(memoryDC, 15, 8, menuText, (int)strlen(menuText));
             } else {
                 SetTextColor(memoryDC, cfg.col_menu_hidden);
@@ -1179,12 +1165,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         case 1: DoSave(hwnd); break;
                         case 2: undo(&editor); EnsureCursorVisible(); ClampViewOffset(); InvalidateRect(hwnd, NULL, FALSE); break;
                         case 3: redo(&editor); EnsureCursorVisible(); ClampViewOffset(); InvalidateRect(hwnd, NULL, FALSE); break;
-                        case 4: CopySelectionToClipboard(hwnd); break;
-                        case 5: PasteFromClipboard(hwnd); break;
-                        case 6: editor.edit_mode = 1 - editor.edit_mode; hex_state = 0; break;
-                        case 7: CycleBPR(hwnd); break;
-                        case 8: editor.view_layout = 1 - editor.view_layout; ClampBPRForLayout(hwnd); break;
-                        case 9: DestroyWindow(hwnd); break;
+                        case 4: editor.edit_mode = 1 - editor.edit_mode; hex_state = 0; break;
+                        case 5: CycleBPR(hwnd); break;
+                        case 6: editor.view_layout = 1 - editor.view_layout; ClampBPRForLayout(hwnd); break;
+                        case 7: DestroyWindow(hwnd); break;
                         default:
                             ReleaseCapture();
                             SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
