@@ -1,0 +1,49 @@
+name: Fuzz Testing
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  fuzz-hex-core:
+    name: Run libFuzzer on Hex Editor Core
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Create Mock Header
+        run: |
+          mkdir -p fuzz
+          cat << 'EOF' > fuzz/mock_windows.h
+          #ifndef MOCK_WINDOWS_H
+          #define MOCK_WINDOWS_H
+          #include <stdint.h>
+          #define WINDOW_SIZE 65536
+          #define MAX_PATH_LEN 512
+          #define DEFAULT_TRACKER_CAP 64
+          typedef int64_t __int64;
+          #define _fseeki64 fseeko
+          #define _ftelli64 ftello
+          #endif
+          EOF
+
+      - name: Compile Fuzz Target
+        run: |
+          # -include forces the mock header to be processed before hex.h/hex.c
+          clang -fsanitize=fuzzer,address,undefined -g -O1 \
+            -include fuzz/mock_windows.h \
+            fuzz/fuzz_hex.c hex.c -o fuzz_hex_test
+
+      - name: Run Fuzzer
+        run: |
+          # Run for 60 seconds. 
+          # -max_len prevents the fuzzer from generating excessively large inputs.
+          ./fuzz_hex_test -max_total_time=60 -timeout=10 -max_len=4096
