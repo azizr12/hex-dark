@@ -1041,32 +1041,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         char hexText[4];
                         sprintf(hexText, "%02X ", get_byte(&editor, current));
 
-                        /* JPEG / Syntax Highlighting Logic */
-                        size_t window_offset = current - editor.window_start;
-                        HighlightCategory cat = get_highlight_category(
-                            editor.window, 
-                            window_offset, 
-                            editor.window_len
-                        );
-
-                        COLORREF active_hex_color = cfg.col_hex;
-                        switch (cat) {
-                            case HIGHLIGHT_JPEG_SOI:
-                            case HIGHLIGHT_JPEG_EOI:
-                                active_hex_color = RGB(255, 0, 255);   // Magenta for SOI/EOI
-                                break;
-                            case HIGHLIGHT_JPEG_MARKER:
-                                active_hex_color = RGB(255, 255, 0);   // Yellow for Markers
-                                break;
-                            case HIGHLIGHT_JPEG_DATA:
-                                active_hex_color = RGB(150, 150, 150); // Gray for JPEG Data / Escaped FF00
-                                break;
-                            case HIGHLIGHT_NORMAL:
-                            default:
-                                active_hex_color = cfg.col_hex;        // Default Green
-                                break;
-                        }
-
                         if (cursor) {
                             RECT cursorRect = {
                                 xHex + column * 3 * charWidth,
@@ -1077,9 +1051,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             HBRUSH brush = CreateSolidBrush(cfg.col_cursor);
                             FillRect(memoryDC, &cursorRect, brush);
                             DeleteObject(brush);
-                            SetTextColor(memoryDC, RGB(0, 0, 0)); // Black text on cursor
+                            SetTextColor(memoryDC, RGB(0, 0, 0));
                         } else {
-                            SetTextColor(memoryDC, active_hex_color);
+                            SetTextColor(memoryDC, cfg.col_hex);
                         }
 
                         TextOutA(memoryDC, xHex + column * 3 * charWidth, y, hexText, 3);
@@ -1103,16 +1077,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     }
 
                     uint8_t byte = get_byte(&editor, current);
-                    char character;
-                    
-                    /* Ensure the byte is a standard printable ASCII character */
-                    if (byte >= 32 && byte <= 126) {
-                        /* If printable, apply the plugin transformation (ROT13) */
-                        character = (char)translate_byte(byte);
-                    } else {
-                        /* If unprintable, force it to a dot to protect the UI */
-                        character = '.';
-                    }
+                    char character = isprint(byte) ? (char)byte : '.';
 
                     if (cursor) {
                         RECT cursorRect = { xAscii + column * charWidth, y, xAscii + (column + 1) * charWidth, y + charHeight };
