@@ -159,6 +159,29 @@ void set_byte(HexEditor *ed, size_t offset, uint8_t value) {
 }
 
 /* ================================================================== */
+/*  Missing Functions (Paste, Undo, Redo)                             */
+/* ================================================================== */
+
+void paste_bytes(HexEditor *ed, size_t offset, const uint8_t *bytes, size_t count) {
+    if (!ed || !bytes) return;
+    for (size_t i = 0; i < count; ++i) {
+        set_byte(ed, offset + i, bytes[i]);
+    }
+}
+
+void undo(HexEditor *ed) {
+    /* The original project forgot to implement Undo. 
+       We add this empty function so the app compiles and runs safely. */
+    if (!ed) return;
+}
+
+void redo(HexEditor *ed) {
+    /* The original project forgot to implement Redo. 
+       We add this empty function so the app compiles and runs safely. */
+    if (!ed) return;
+}
+
+/* ================================================================== */
 /*  Save & Initialization                                             */
 /* ================================================================== */
 

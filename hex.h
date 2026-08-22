@@ -13,6 +13,9 @@
 #define MAX_PATH_LEN            256
 #define DEFAULT_TRACKER_CAP     65536
 
+/* Forward declaration: Tells the compiler HexEditor exists before we define it */
+typedef struct HexEditor HexEditor;
+
 /* Error codes for clear and safe error reporting */
 typedef enum {
     HEX_OK = 0,
@@ -42,7 +45,7 @@ typedef struct {
     size_t     capacity;
 } DirtyTracker;
 
-typedef struct {
+struct HexEditor {
     FILE   *fp;
     size_t  file_size;
     size_t  original_file_size;
@@ -64,7 +67,7 @@ typedef struct {
     size_t  selection_start;
     size_t  selection_end;
     SelectionOrigin selection_origin;
-} HexEditor;
+};
 
 /* Core Functions */
 void init_tracker(DirtyTracker *t, size_t initial_cap);
@@ -73,7 +76,11 @@ uint8_t get_byte(HexEditor *ed, size_t offset);
 void set_byte(HexEditor *ed, size_t offset, uint8_t value);
 size_t get_effective_size(HexEditor *ed);
 
-/* Updated to return HexError for better error handling */
+/* Missing functions added to fix compilation errors */
+void paste_bytes(HexEditor *ed, size_t offset, const uint8_t *bytes, size_t count);
+void undo(HexEditor *ed);
+void redo(HexEditor *ed);
+
 HexError init_file(HexEditor *ed, const char *filename);
 HexError save_dirty(HexEditor *ed);
 
