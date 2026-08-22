@@ -209,21 +209,21 @@ static void generate_default_ini(void)
     WritePrivateProfileStringA(
         "Window",
         "rows",
-        "16",
+        "32",
         ini_path
     );
 
     WritePrivateProfileStringA(
         "Window",
         "aspect_w",
-        "16",
+        "32",
         ini_path
     );
 
     WritePrivateProfileStringA(
         "Window",
         "aspect_h",
-        "9",
+        "32",
         ini_path
     );
 
@@ -237,7 +237,7 @@ static void generate_default_ini(void)
     WritePrivateProfileStringA(
         "Font",
         "size",
-        "16",
+        "32",
         ini_path
     );
 
@@ -3026,8 +3026,8 @@ int WINAPI WinMain(
             CW_USEDEFAULT,
             CW_USEDEFAULT,
 
-            1000,
-            700,
+            960,
+            1080,
 
             NULL,
             NULL,
