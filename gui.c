@@ -11,6 +11,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <limits.h>
+#include "plugin.h"
 
 #include "hex.h"
 
@@ -2177,134 +2178,79 @@ LRESULT CALLBACK WndProc(
 
                 if (editor.view_layout == 0) {
 
-                    xAscii =
-                        xHex +
-                        (bpr * 3 + 2) *
-                        charWidth;
+                    xAscii = xHex + (bpr * 3 + 2) * charWidth;
 
-                    for (
-                        int column = 0;
-                        column < bpr;
-                        column++
-                    ) {
+                    for (int column = 0; column < bpr; column++) {
 
-                        size_t current =
-                            offset +
-                            (size_t)column;
+                        size_t current = offset + (size_t)column;
 
                         if (current >= virtual_size)
                             break;
 
-                        int selected =
-                            selectionActive &&
-                            current >= selectionLow &&
-                            current <= selectionHigh;
+                        int selected = selectionActive &&
+                                       current >= selectionLow &&
+                                       current <= selectionHigh;
 
-                        int cursor =
-                            current == editor.cursor &&
-                            editor.edit_mode == 0;
+                        int cursor = current == editor.cursor &&
+                                     editor.edit_mode == 0;
 
                         if (selected) {
-
                             RECT selectionRect = {
-                                xHex +
-                                    column *
-                                    3 *
-                                    charWidth,
-
+                                xHex + column * 3 * charWidth,
                                 y,
-
-                                xHex +
-                                    (column + 1) *
-                                    3 *
-                                    charWidth,
-
+                                xHex + (column + 1) * 3 * charWidth,
                                 y + charHeight
                             };
-
-                            HBRUSH brush =
-                                CreateSolidBrush(
-                                    cfg.col_selection
-                                );
-
-                            FillRect(
-                                memoryDC,
-                                &selectionRect,
-                                brush
-                            );
-
+                            HBRUSH brush = CreateSolidBrush(cfg.col_selection);
+                            FillRect(memoryDC, &selectionRect, brush);
                             DeleteObject(brush);
                         }
 
                         char hexText[4];
+                        sprintf(hexText, "%02X ", get_byte(&editor, current));
 
-                        sprintf(
-                            hexText,
-                            "%02X ",
-                            get_byte(
-                                &editor,
-                                current
-                            )
+                        /* ========================================================== */
+                        /* ADDED: JPEG Highlighting Logic                             */
+                        /* ========================================================== */
+                        size_t window_offset = current - editor.window_start;
+                        HighlightCategory cat = get_highlight_category(
+                            editor.window, 
+                            window_offset, 
+                            editor.window_len
                         );
 
+                        COLORREF active_hex_color = cfg.col_hex;
+                        if (cat == HIGHLIGHT_JPEG_SOI || cat == HIGHLIGHT_JPEG_EOI) {
+                            active_hex_color = RGB(255, 0, 255);   // Magenta for SOI/EOI
+                        } else if (cat == HIGHLIGHT_JPEG_MARKER) {
+                            active_hex_color = RGB(255, 255, 0);   // Yellow for Markers (APP0, DQT, SOF, etc.)
+                        }
+                        /* ========================================================== */
+
                         if (cursor) {
-
                             RECT cursorRect = {
-                                xHex +
-                                    column *
-                                    3 *
-                                    charWidth,
-
+                                xHex + column * 3 * charWidth,
                                 y,
-
-                                xHex +
-                                    (column + 1) *
-                                    3 *
-                                    charWidth,
-
+                                xHex + (column + 1) * 3 * charWidth,
                                 y + charHeight
                             };
-
-                            HBRUSH brush =
-                                CreateSolidBrush(
-                                    cfg.col_cursor
-                                );
-
-                            FillRect(
-                                memoryDC,
-                                &cursorRect,
-                                brush
-                            );
-
+                            HBRUSH brush = CreateSolidBrush(cfg.col_cursor);
+                            FillRect(memoryDC, &cursorRect, brush);
                             DeleteObject(brush);
-
-                            SetTextColor(
-                                memoryDC,
-                                RGB(0, 0, 0)
-                            );
-
+                            SetTextColor(memoryDC, RGB(0, 0, 0)); // Black text on cursor
                         } else {
-
-                            SetTextColor(
-                                memoryDC,
-                                cfg.col_hex
-                            );
+                            SetTextColor(memoryDC, active_hex_color); // Use dynamic color
                         }
 
                         TextOutA(
                             memoryDC,
-                            xHex +
-                                column *
-                                3 *
-                                charWidth,
+                            xHex + column * 3 * charWidth,
                             y,
                             hexText,
                             3
                         );
                     }
-
                 } else {
-
                     xAscii = xHex;
                 }
 
