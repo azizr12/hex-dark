@@ -51,20 +51,30 @@ jobs:
     - name: Build Project
       run: mingw32-make all
 
-    # NEW STEP: Uploads the executable as an artifact on every commit.
+    # Dynamically find the exact name of the generated executable (e.g., hexedit-a1b2c3d.exe)
+    - name: Find Executable Name
+      id: find_exe
+      shell: bash
+      run: |
+        EXE_NAME=$(ls hexedit-*.exe)
+        echo "exe_name=$EXE_NAME" >> $GITHUB_OUTPUT
+        echo "Found executable: $EXE_NAME"
+
+    # Uploads the executable as an artifact on every commit
     - name: Upload Executable as Artifact
       uses: actions/upload-artifact@v4
       with:
         name: hexedit-${{ github.sha }}
-        path: hexedit.exe
+        path: ${{ steps.find_exe.outputs.exe_name }}
         retention-days: 7
 
+    # Creates a GitHub Release ONLY when the VERSION file is updated
     - name: Create GitHub Release
       if: steps.check_version.outputs.version == 'true'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ steps.get_version.outputs.version }}
         name: Hex Editor v${{ steps.get_version.outputs.version }}
-        files: hexedit.exe
+        files: ${{ steps.find_exe.outputs.exe_name }}
         generate_release_notes: true
         make_latest: true

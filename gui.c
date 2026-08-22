@@ -64,7 +64,7 @@ typedef struct {
 } AppConfig;
 
 static AppConfig cfg;
-static char ini_path[MAX_PATH];
+static char ini_path[MAX_PATH + 16];
 
 /* ================================================================== */
 /* Global Windows state                                                */
@@ -2241,7 +2241,7 @@ LRESULT CALLBACK WndProc(
                     cfg.col_offset
                 );
 
-                char offsetText[16];
+                char offsetText[32];
 
                 sprintf(
                     offsetText,
