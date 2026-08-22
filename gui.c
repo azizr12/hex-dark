@@ -70,7 +70,6 @@ static char ini_path[MAX_PATH + 16];
 /* Global Windows state                                                */
 /* ================================================================== */
 
-static HWND g_hScroll = NULL;
 
 static RECT fullClientRect = {0};
 static RECT clientRect = {0};
@@ -712,329 +711,82 @@ static size_t get_total_rows(void)
 /* Scrollbar                                                           */
 /* ================================================================== */
 
-static int VScrollWidth(void)
-{
-    return GetSystemMetrics(SM_CXVSCROLL);
-}
 
-static void LayoutScrollBar(HWND hwnd)
-{
-    (void)hwnd;
-
-    if (!g_hScroll)
-        return;
-
-    int width = VScrollWidth();
-
-    int x =
-        fullClientRect.right -
-        width;
-
-    int y = MENU_HEIGHT;
-
-    int height =
-        fullClientRect.bottom -
-        MENU_HEIGHT -
-        STATUS_HEIGHT;
-
-    if (x < 0)
-        x = 0;
-
-    if (height < 0)
-        height = 0;
-
-    MoveWindow(
-        g_hScroll,
-        x,
-        y,
-        width,
-        height,
-        TRUE
-    );
-}
-
-static void UpdateVScroll(HWND hwnd)
-{
-    (void)hwnd;
-
-    if (!g_hScroll)
-        return;
-
-    int bpr =
-        editor.bytes_per_row > 0
-            ? editor.bytes_per_row
-            : 16;
-
-    int pageRows =
-        visibleRows > 0
-            ? visibleRows
-            : 1;
-
-    size_t totalRows = get_total_rows();
-
-    size_t maxRowIndex = totalRows - 1;
-
-    if (maxRowIndex > (size_t)(INT_MAX - 1))
-        maxRowIndex = (size_t)(INT_MAX - 1);
-
-    size_t maxScrollRow =
-        totalRows > (size_t)pageRows
-            ? totalRows - (size_t)pageRows
-            : 0;
-
-    if (maxScrollRow > maxRowIndex)
-        maxScrollRow = maxRowIndex;
-
-    size_t viewRow =
-        editor.view_offset /
-        (size_t)bpr;
-
-    if (viewRow > maxScrollRow) {
-        viewRow = maxScrollRow;
-
-        editor.view_offset =
-            viewRow * (size_t)bpr;
-    }
-
-    SCROLLINFO si = {0};
-
-    si.cbSize = sizeof(si);
-    si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
-
-    si.nMin = 0;
-    si.nMax = (int)maxRowIndex;
-    si.nPage = (UINT)pageRows;
-    si.nPos = (int)viewRow;
-
-    UINT maxPage =
-        (UINT)(si.nMax + 1);
-
-    if (si.nPage > maxPage)
-        si.nPage = maxPage;
-
-    if (si.nPage < 1)
-        si.nPage = 1;
-
-    SetScrollInfo(
-        g_hScroll,
-        SB_CTL,
-        &si,
-        TRUE
-    );
-
-    if (si.nMax == 0 ||
-        (int)si.nPage > si.nMax) {
-
-        EnableScrollBar(
-            g_hScroll,
-            SB_CTL,
-            ESB_DISABLE_BOTH
-        );
-
-    } else {
-
-        EnableScrollBar(
-            g_hScroll,
-            SB_CTL,
-            ESB_ENABLE_BOTH
-        );
-    }
-}
-
-static void SetViewRow(HWND hwnd, size_t row)
-{
-    int bpr =
-        editor.bytes_per_row > 0
-            ? editor.bytes_per_row
-            : 16;
-
-    int pageRows =
-        visibleRows > 0
-            ? visibleRows
-            : 1;
-
-    size_t totalRows = get_total_rows();
-
-    size_t maxScrollRow =
-        totalRows > (size_t)pageRows
-            ? totalRows - (size_t)pageRows
-            : 0;
-
-    if (maxScrollRow > (size_t)(INT_MAX - 1))
-        maxScrollRow = (size_t)(INT_MAX - 1);
-
-    if (row > maxScrollRow)
-        row = maxScrollRow;
-
-    editor.view_offset =
-        row * (size_t)bpr;
-
-    UpdateVScroll(hwnd);
-
-    InvalidateRect(
-        hwnd,
-        NULL,
-        FALSE
-    );
-}
-
-static void HandleVScroll(
-    HWND hwnd,
-    WPARAM wParam,
-    LPARAM lParam)
-{
-    HWND scrollbar = (HWND)lParam;
-
-    if (!scrollbar)
-        scrollbar = g_hScroll;
-
-    if (!scrollbar)
-        return;
-
-    int bpr =
-        editor.bytes_per_row > 0
-            ? editor.bytes_per_row
-            : 16;
-
-    size_t currentRow =
-        editor.view_offset /
-        (size_t)bpr;
-
-    if (currentRow > (size_t)(INT_MAX - 1))
-        currentRow = (size_t)(INT_MAX - 1);
-
-    int oldPos = (int)currentRow;
-    int pos = oldPos;
-
-    SCROLLINFO si = {0};
-
-    si.cbSize = sizeof(si);
-    si.fMask = SIF_RANGE | SIF_PAGE;
-
-    GetScrollInfo(
-        scrollbar,
-        SB_CTL,
-        &si
-    );
-
-    int page =
-        si.nPage
-            ? (int)si.nPage
-            : (visibleRows > 0 ? visibleRows : 1);
-
-    int bottom =
-        si.nMax -
-        page +
-        1;
-
-    if (bottom < 0)
-        bottom = 0;
-
-    switch (LOWORD(wParam)) {
-
-        case SB_TOP:
-            pos = 0;
-            break;
-
-        case SB_BOTTOM:
-            pos = bottom;
-            break;
-
-        case SB_LINEUP:
-            pos = oldPos - 1;
-            break;
-
-        case SB_LINEDOWN:
-            pos = oldPos + 1;
-            break;
-
-        case SB_PAGEUP:
-            pos = oldPos - page;
-            break;
-
-        case SB_PAGEDOWN:
-            pos = oldPos + page;
-            break;
-
-        case SB_THUMBTRACK:
-        case SB_THUMBPOSITION: {
-            SCROLLINFO track = {0};
-
-            track.cbSize = sizeof(track);
-            track.fMask = SIF_TRACKPOS;
-
-            if (GetScrollInfo(
-                    scrollbar,
-                    SB_CTL,
-                    &track)) {
-
-                pos = track.nTrackPos;
-            }
-
-            break;
-        }
-
-        case SB_ENDSCROLL:
-        default:
-            SetFocus(hwnd);
-            return;
-    }
-
-    if (pos < 0)
-        pos = 0;
-
-    if (pos > bottom)
-        pos = bottom;
-
-    if (pos != oldPos)
-        SetViewRow(
-            hwnd,
-            (size_t)pos
-        );
-
-    SetFocus(hwnd);
-}
 
 static void WheelScroll(HWND hwnd, int delta)
 {
-    if (delta == 0)
-        return;
-
-    int bpr =
-        editor.bytes_per_row > 0
-            ? editor.bytes_per_row
-            : 16;
-
-    int rows =
-        abs(delta) /
-        WHEEL_DELTA;
-
-    if (rows < 1)
-        rows = 1;
-
-    size_t amount =
-        (size_t)rows *
-        (size_t)bpr;
+    if (delta == 0) return;
+    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+    int rows = abs(delta) / WHEEL_DELTA;
+    if (rows < 1) rows = 1;
+    size_t amount = (size_t)rows * (size_t)bpr;
 
     if (delta > 0) {
-
-        if (editor.view_offset >= amount)
-            editor.view_offset -= amount;
-        else
-            editor.view_offset = 0;
-
+        if (editor.view_offset >= amount) editor.view_offset -= amount;
+        else editor.view_offset = 0;
     } else {
-
         editor.view_offset += amount;
     }
 
-    UpdateVScroll(hwnd);
+    ClampViewOffset(); // Replaces UpdateVScroll
+    InvalidateRect(hwnd, NULL, FALSE);
+}
 
-    InvalidateRect(
-        hwnd,
-        NULL,
-        FALSE
-    );
+
+/* ================================================================== */
+/* Custom Dark Mode Scrollbar                                          */
+/* ================================================================== */
+
+static RECT g_scrollRect = {0};
+static BOOL g_isDraggingScroll = FALSE;
+static int g_scrollDragOffset = 0;
+
+static void ClampViewOffset(void) {
+    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+    size_t totalRows = get_total_rows();
+    size_t maxScrollRow = totalRows > (size_t)visibleRows ? totalRows - (size_t)visibleRows : 0;
+    size_t maxOffset = maxScrollRow * (size_t)bpr;
+    if (editor.view_offset > maxOffset) editor.view_offset = maxOffset;
+}
+
+static RECT GetScrollThumbRect(void) {
+    RECT thumb = {0};
+    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+    size_t totalRows = get_total_rows();
+    size_t viewRow = editor.view_offset / (size_t)bpr;
+    size_t maxScrollRow = totalRows > (size_t)visibleRows ? totalRows - (size_t)visibleRows : 0;
+
+    if (totalRows <= (size_t)visibleRows) {
+        thumb = g_scrollRect; // Full height if no scroll needed
+        return thumb;
+    }
+
+    int trackHeight = g_scrollRect.bottom - g_scrollRect.top;
+    int thumbHeight = trackHeight * visibleRows / totalRows;
+    if (thumbHeight < 20) thumbHeight = 20; // Minimum thumb size
+    
+    int thumbY = g_scrollRect.top + (trackHeight - thumbHeight) * viewRow / maxScrollRow;
+
+    thumb.left = g_scrollRect.left + 2;
+    thumb.right = g_scrollRect.right - 2;
+    thumb.top = thumbY;
+    thumb.bottom = thumbY + thumbHeight;
+    return thumb;
+}
+
+static void DrawCustomScrollBar(HDC hdc) {
+    if (g_scrollRect.right <= g_scrollRect.left) return;
+
+    // 1. Draw Track (Matches Background)
+    HBRUSH trackBrush = CreateSolidBrush(cfg.col_background);
+    FillRect(hdc, &g_scrollRect, trackBrush);
+    DeleteObject(trackBrush);
+
+    // 2. Draw Thumb (Matches Cursor/Accent Color)
+    RECT thumb = GetScrollThumbRect();
+    HBRUSH thumbBrush = CreateSolidBrush(cfg.col_cursor);
+    FillRect(hdc, &thumb, thumbBrush);
+    DeleteObject(thumbBrush);
 }
 
 /* ================================================================== */
@@ -1050,64 +802,25 @@ static void OnSize(HWND hwnd, int cx, int cy)
 
     clientRect = fullClientRect;
 
-    if (g_hScroll) {
-        clientRect.right -= VScrollWidth();
+    // Calculate custom scrollbar area on the right edge
+    int scrollWidth = GetSystemMetrics(SM_CXVSCROLL);
+    g_scrollRect.left = cx - scrollWidth;
+    g_scrollRect.right = cx;
+    g_scrollRect.top = MENU_HEIGHT;
+    g_scrollRect.bottom = cy - STATUS_HEIGHT;
 
-        if (clientRect.right < 0)
-            clientRect.right = 0;
-    }
+    if (g_scrollRect.left < 0) g_scrollRect.left = 0;
+    clientRect.right = g_scrollRect.left; // Shrink client area so hex doesn't overlap
 
     if (charHeight > 0) {
-
-        visibleRows =
-            (
-                clientRect.bottom -
-                MENU_HEIGHT -
-                STATUS_HEIGHT
-            ) /
-            charHeight;
-
-        if (visibleRows < 1)
-            visibleRows = 1;
+        visibleRows = (clientRect.bottom - MENU_HEIGHT - STATUS_HEIGHT) / charHeight;
+        if (visibleRows < 1) visibleRows = 1;
     }
 
-    LayoutScrollBar(hwnd);
-    UpdateVScroll(hwnd);
+    ClampViewOffset();
+    InvalidateRect(hwnd, NULL, FALSE);
 }
 
-static void CreateVScrollBar(HWND hwnd)
-{
-    if (g_hScroll)
-        return;
-
-    HINSTANCE instance =
-        (HINSTANCE)GetWindowLongPtrA(
-            hwnd,
-            GWLP_HINSTANCE
-        );
-
-    g_hScroll = CreateWindowExA(
-        0,
-        "SCROLLBAR",
-        NULL,
-        WS_CHILD |
-        WS_VISIBLE |
-        SBS_VERT,
-        0,
-        0,
-        0,
-        0,
-        hwnd,
-        (HMENU)(intptr_t)IDC_VSCROLLBAR,
-        instance,
-        NULL
-    );
-
-    if (g_hScroll) {
-        LayoutScrollBar(hwnd);
-        UpdateVScroll(hwnd);
-    }
-}
 
 /* ================================================================== */
 /* Bytes-per-row                                                       */
@@ -1237,10 +950,6 @@ static void EnsureCursorVisible(void)
             (size_t)bpr;
     }
 }
-
-/* ================================================================== */
-/* Clipboard                                                           */
-/* ================================================================== */
 
 /* ================================================================== */
 /* Clipboard                                                           */
@@ -1934,63 +1643,48 @@ LRESULT CALLBACK WndProc(
             break;
 
         case WM_MOUSEMOVE: {
-
-            POINTS points =
-                MAKEPOINTS(lParam);
+            POINTS points = MAKEPOINTS(lParam);
 
             if (points.y < MENU_HEIGHT) {
-
                 if (!menu_visible) {
-
                     menu_visible = TRUE;
-
-                    InvalidateRect(
-                        hwnd,
-                        NULL,
-                        FALSE
-                    );
+                    InvalidateRect(hwnd, NULL, FALSE);
                 }
-
-                SetTimer(
-                    hwnd,
-                    1,
-                    (UINT)cfg.menu_hide_delay,
-                    NULL
-                );
+                SetTimer(hwnd, 1, (UINT)cfg.menu_hide_delay, NULL);
             }
 
-            if (
-                is_dragging &&
-                (wParam & MK_LBUTTON)
-            ) {
+            // Handle Scrollbar Dragging
+            if (g_isDraggingScroll && (wParam & MK_LBUTTON)) {
+                int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+                size_t totalRows = get_total_rows();
+                size_t maxScrollRow = totalRows > (size_t)visibleRows ? totalRows - (size_t)visibleRows : 0;
+                
+                int trackHeight = g_scrollRect.bottom - g_scrollRect.top;
+                RECT thumb = GetScrollThumbRect();
+                int thumbHeight = thumb.bottom - thumb.top;
+                int availableTrack = trackHeight - thumbHeight;
+                
+                if (availableTrack > 0 && maxScrollRow > 0) {
+                    int newY = points.y - g_scrollDragOffset;
+                    int clampedY = max(g_scrollRect.top, min(newY, g_scrollRect.bottom - thumbHeight));
+                    size_t newRow = (size_t)((clampedY - g_scrollRect.top) * maxScrollRow / availableTrack);
+                    editor.view_offset = newRow * (size_t)bpr;
+                }
+                ClampViewOffset();
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
 
+            // Handle Grid Selection Dragging
+            if (is_dragging && (wParam & MK_LBUTTON)) {
                 int mode;
-
-                size_t offset =
-                    GridHitTest(
-                        points.x,
-                        points.y,
-                        &mode
-                    );
-
+                size_t offset = GridHitTest(points.x, points.y, &mode);
                 if (offset != (size_t)-1) {
-
-                    editor.selection_end =
-                        offset;
-
-                    editor.cursor =
-                        offset;
-
+                    editor.selection_end = offset;
+                    editor.cursor = offset;
                     hex_state = 0;
-
-                    InvalidateRect(
-                        hwnd,
-                        NULL,
-                        FALSE
-                    );
+                    InvalidateRect(hwnd, NULL, FALSE);
                 }
             }
-
             break;
         }
 
@@ -2574,6 +2268,14 @@ LRESULT CALLBACK WndProc(
                 DT_SINGLELINE
             );
 
+            /* ------------------------------------------------------ */
+            /* Custom Scrollbar                                        */
+            /* ------------------------------------------------------ */
+            DrawCustomScrollBar(memoryDC);
+
+            /* ------------------------------------------------------ */
+            /* Blit Memory DC to Screen DC                             */
+            /* ------------------------------------------------------ */
             BitBlt(
                 hdc,
                 0,
@@ -2586,6 +2288,9 @@ LRESULT CALLBACK WndProc(
                 SRCCOPY
             );
 
+            /* ------------------------------------------------------ */
+            /* Cleanup GDI Objects                                     */
+            /* ------------------------------------------------------ */
             SelectObject(
                 memoryDC,
                 oldBitmap
@@ -2593,6 +2298,15 @@ LRESULT CALLBACK WndProc(
 
             DeleteObject(
                 memoryBitmap
+            );
+
+            DeleteDC(
+                memoryDC
+            );
+
+            EndPaint(
+                hwnd,
+                &ps
             );
 
             DeleteDC(
@@ -2612,79 +2326,58 @@ LRESULT CALLBACK WndProc(
         /* ========================================================== */
 
         case WM_LBUTTONDOWN: {
-
             int x = LOWORD(lParam);
             int y = HIWORD(lParam);
-
+            POINT point = { x, y };
             SetFocus(hwnd);
 
-            RECT buttonRect =
-                GetBtnRect();
-
-            POINT point = {
-                x,
-                y
-            };
-
-            if (PtInRect(
-                    &buttonRect,
-                    point
-                )) {
-
-                editor.readonly_mode =
-                    1 -
-                    editor.readonly_mode;
-
-                hex_state = 0;
-
-                if (editor.readonly_mode) {
-
-                    size_t size =
-                        get_effective_size(
-                            &editor
-                        );
-
-                    if (size == 0) {
-
-                        editor.cursor = 0;
-
-                    } else if (
-                        editor.cursor >= size
-                    ) {
-
-                        editor.cursor =
-                            size - 1;
+            // 1. Handle Custom Scrollbar Click/Drag
+            if (PtInRect(&g_scrollRect, point)) {
+                RECT thumb = GetScrollThumbRect();
+                if (PtInRect(&thumb, point)) {
+                    g_isDraggingScroll = TRUE;
+                    g_scrollDragOffset = point.y - thumb.top;
+                    SetCapture(hwnd);
+                } else {
+                    // Clicked on track (Page Up / Page Down)
+                    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+                    if (point.y < thumb.top) {
+                        editor.view_offset -= (size_t)visibleRows * bpr;
+                    } else {
+                        editor.view_offset += (size_t)visibleRows * bpr;
                     }
-
-                    clear_selection(&editor);
-
-                    EnsureCursorVisible();
+                    ClampViewOffset();
+                    InvalidateRect(hwnd, NULL, FALSE);
                 }
-
-                UpdateVScroll(hwnd);
-
-                InvalidateRect(
-                    hwnd,
-                    NULL,
-                    FALSE
-                );
-
                 return 0;
             }
 
+            // 2. Handle RO/RW Button
+            RECT buttonRect = GetBtnRect();
+            if (PtInRect(&buttonRect, point)) {
+                editor.readonly_mode = 1 - editor.readonly_mode;
+                hex_state = 0;
+                if (editor.readonly_mode) {
+                    size_t size = get_effective_size(&editor);
+                    if (size == 0) editor.cursor = 0;
+                    else if (editor.cursor >= size) editor.cursor = size - 1;
+                    clear_selection(&editor);
+                    EnsureCursorVisible();
+                }
+                ClampViewOffset();
+                InvalidateRect(hwnd, NULL, FALSE);
+                return 0;
+            }
+
+            // 3. Handle Menu Bar
             if (y < MENU_HEIGHT) {
-
                 if (menu_visible) {
-
-                    int block =
-                        x /
-                        (8 * charWidth);
-
+                    int block = x / (8 * charWidth);
                     switch (block) {
                         case 0: DoOpen(hwnd); break;
                         case 1: DoSave(hwnd); break;
-                        case 2: undo(&editor); EnsureCursorVisible(); UpdateVScroll(hwnd); InvalidateRect(hwnd, NULL, FALSE); break;
-                        case 3: redo(&editor); EnsureCursorVisible(); UpdateVScroll(hwnd); InvalidateRect(hwnd, NULL, FALSE); break;
+                        case 2: undo(&editor); EnsureCursorVisible(); ClampViewOffset(); InvalidateRect(hwnd, NULL, FALSE); break;
+                        case 3: redo(&editor); EnsureCursorVisible(); ClampViewOffset(); InvalidateRect(hwnd, NULL, FALSE); break;
                         case 4: CopySelectionToClipboard(hwnd); break;
                         case 5: PasteFromClipboard(hwnd); break;
                         case 6: editor.edit_mode = 1 - editor.edit_mode; hex_state = 0; break;
@@ -2696,117 +2389,53 @@ LRESULT CALLBACK WndProc(
                             SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
                             break;
                     }
-
                 } else {
-
                     ReleaseCapture();
-
-                    SendMessage(
-                        hwnd,
-                        WM_NCLBUTTONDOWN,
-                        HTCAPTION,
-                        0
-                    );
+                    SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
                 }
-
-                InvalidateRect(
-                    hwnd,
-                    NULL,
-                    FALSE
-                );
-
+                InvalidateRect(hwnd, NULL, FALSE);
                 return 0;
             }
 
+            // 4. Handle Grid Hit Test
             int mode;
-
-            size_t offset =
-                GridHitTest(
-                    x,
-                    y,
-                    &mode
-                );
-
+            size_t offset = GridHitTest(x, y, &mode);
             if (offset != (size_t)-1) {
-
                 editor.edit_mode = mode;
-
                 hex_state = 0;
-
-                if (
-                    GetKeyState(VK_SHIFT) &
-                    0x8000
-                ) {
-
-                    if (
-                        editor.selection_start ==
-                        (size_t)-1
-                    ) {
-
-                        editor.selection_start =
-                            editor.cursor;
-                    }
-
-                    editor.selection_end =
-                        offset;
-
+                if (GetKeyState(VK_SHIFT) & 0x8000) {
+                    if (editor.selection_start == (size_t)-1) editor.selection_start = editor.cursor;
+                    editor.selection_end = offset;
                 } else {
-
-                    clear_selection(
-                        &editor
-                    );
-
-                    editor.selection_start =
-                        offset;
-
-                    editor.selection_end =
-                        offset;
-
+                    clear_selection(&editor);
+                    editor.selection_start = offset;
+                    editor.selection_end = offset;
                     is_dragging = 1;
-
                     SetCapture(hwnd);
                 }
-
                 editor.cursor = offset;
-
                 EnsureCursorVisible();
-                UpdateVScroll(hwnd);
-
-                InvalidateRect(
-                    hwnd,
-                    NULL,
-                    FALSE
-                );
+                ClampViewOffset();
+                InvalidateRect(hwnd, NULL, FALSE);
             }
-
             break;
         }
 
+
         case WM_LBUTTONUP:
-
-            if (is_dragging) {
-
-                is_dragging = 0;
-
+            if (g_isDraggingScroll) {
+                g_isDraggingScroll = FALSE;
                 ReleaseCapture();
-
-                if (
-                    editor.selection_start ==
-                    editor.selection_end
-                ) {
-
-                    clear_selection(
-                        &editor
-                    );
-                }
-
-                InvalidateRect(
-                    hwnd,
-                    NULL,
-                    FALSE
-                );
             }
 
+            if (is_dragging) {
+                is_dragging = 0;
+                ReleaseCapture();
+                if (editor.selection_start == editor.selection_end) {
+                    clear_selection(&editor);
+                }
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
             break;
 
         case WM_MOUSEWHEEL:
