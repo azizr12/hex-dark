@@ -707,30 +707,6 @@ static size_t get_total_rows(void)
     return rows;
 }
 
-/* ================================================================== */
-/* Scrollbar                                                           */
-/* ================================================================== */
-
-
-
-static void WheelScroll(HWND hwnd, int delta)
-{
-    if (delta == 0) return;
-    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
-    int rows = abs(delta) / WHEEL_DELTA;
-    if (rows < 1) rows = 1;
-    size_t amount = (size_t)rows * (size_t)bpr;
-
-    if (delta > 0) {
-        if (editor.view_offset >= amount) editor.view_offset -= amount;
-        else editor.view_offset = 0;
-    } else {
-        editor.view_offset += amount;
-    }
-
-    ClampViewOffset(); // Replaces UpdateVScroll
-    InvalidateRect(hwnd, NULL, FALSE);
-}
 
 
 /* ================================================================== */
@@ -747,6 +723,21 @@ static void ClampViewOffset(void) {
     size_t maxScrollRow = totalRows > (size_t)visibleRows ? totalRows - (size_t)visibleRows : 0;
     size_t maxOffset = maxScrollRow * (size_t)bpr;
     if (editor.view_offset > maxOffset) editor.view_offset = maxOffset;
+}
+
+static void DrawCustomScrollBar(HDC hdc) {
+    if (g_scrollRect.right <= g_scrollRect.left) return;
+
+    // 1. Draw Track (Matches Background)
+    HBRUSH trackBrush = CreateSolidBrush(cfg.col_background);
+    FillRect(hdc, &g_scrollRect, trackBrush);
+    DeleteObject(trackBrush);
+
+    // 2. Draw Thumb (Matches Cursor/Accent Color)
+    RECT thumb = GetScrollThumbRect();
+    HBRUSH thumbBrush = CreateSolidBrush(cfg.col_cursor);
+    FillRect(hdc, &thumb, thumbBrush);
+    DeleteObject(thumbBrush);
 }
 
 static RECT GetScrollThumbRect(void) {
@@ -774,20 +765,32 @@ static RECT GetScrollThumbRect(void) {
     return thumb;
 }
 
-static void DrawCustomScrollBar(HDC hdc) {
-    if (g_scrollRect.right <= g_scrollRect.left) return;
+/* ================================================================== */
+/* Scrollbar                                                           */
+/* ================================================================== */
 
-    // 1. Draw Track (Matches Background)
-    HBRUSH trackBrush = CreateSolidBrush(cfg.col_background);
-    FillRect(hdc, &g_scrollRect, trackBrush);
-    DeleteObject(trackBrush);
 
-    // 2. Draw Thumb (Matches Cursor/Accent Color)
-    RECT thumb = GetScrollThumbRect();
-    HBRUSH thumbBrush = CreateSolidBrush(cfg.col_cursor);
-    FillRect(hdc, &thumb, thumbBrush);
-    DeleteObject(thumbBrush);
+
+static void WheelScroll(HWND hwnd, int delta)
+{
+    if (delta == 0) return;
+    int bpr = editor.bytes_per_row > 0 ? editor.bytes_per_row : 16;
+    int rows = abs(delta) / WHEEL_DELTA;
+    if (rows < 1) rows = 1;
+    size_t amount = (size_t)rows * (size_t)bpr;
+
+    if (delta > 0) {
+        if (editor.view_offset >= amount) editor.view_offset -= amount;
+        else editor.view_offset = 0;
+    } else {
+        editor.view_offset += amount;
+    }
+
+    ClampViewOffset(); // Replaces UpdateVScroll
+    InvalidateRect(hwnd, NULL, FALSE);
 }
+
+
 
 /* ================================================================== */
 /* Window layout                                                       */
@@ -2288,6 +2291,7 @@ LRESULT CALLBACK WndProc(
             );
 
             break;
+        }
 
         /* ========================================================== */
         /* Mouse                                                       */
@@ -2869,30 +2873,14 @@ LRESULT CALLBACK WndProc(
         /* ========================================================== */
 
         case WM_DESTROY:
-
-            KillTimer(
-                hwnd,
-                1
-            );
-
-            cleanup_editor(
-                &editor
-            );
-
-            if (hFont)
-                DeleteObject(hFont);
-
+            KillTimer(hwnd, 1);
+            cleanup_editor(&editor);
+            if (hFont) DeleteObject(hFont);
             PostQuitMessage(0);
-
             break;
     }
 
-    return DefWindowProc(
-        hwnd,
-        msg,
-        wParam,
-        lParam
-    );
+    return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
 /* ================================================================== */
