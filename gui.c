@@ -633,11 +633,24 @@ static void DoSave(HWND hwnd)
         if (GetSaveFileNameA(&ofn)) {
             FILE *file = fopen(filename, "wb");
 
-            if (file) {
-                if (editor.mem_size > 0) {
-                    fwrite(editor.mem_buffer, 1, editor.mem_size, file);
-                }
-                fclose(file);
+                if (file) {
+                    size_t written = 0;
+                    if (editor.mem_size > 0) {
+                        written = fwrite(
+                            editor.mem_buffer,
+                            1,
+                            editor.mem_size,
+                            file
+                        );
+                    }
+                    fclose(file);
+
+                    /* SAFETY FIX: Check if the save actually succeeded */
+                    if (written != editor.mem_size) {
+                        MessageBoxA(hwnd, "Save failed! Disk might be full or file is locked. Your work is still in memory.", "Save Error", MB_OK | MB_ICONERROR);
+                        ClampBPRForLayout(hwnd);
+                        return;
+                    }
 
                 int bpr_keep = editor.bytes_per_row;
                 int layout_keep = editor.view_layout;
@@ -972,7 +985,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
             if (menu_visible) {
                 SetTextColor(memoryDC, cfg.col_menu_text);
-                const char *menuText = "[O]pen [S]ave [U]ndo [R]edo [C]opy [P]aste [I]nput [B]PR [M]ode [X]xit";
+                const char *menuText = "[O]pen  [S]ave  [U]ndo  [R]edo  [C]opy  [P]aste [I]nput [B]PR   [M]ode  [X]xit  ";
                 TextOutA(memoryDC, 15, 8, menuText, (int)strlen(menuText));
             } else {
                 SetTextColor(memoryDC, cfg.col_menu_hidden);
@@ -1234,7 +1247,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             editor.bytes_per_row = cfg.bytes_per_row;
             editor.view_layout = cfg.view_layout;
             editor.edit_mode = cfg.edit_mode;
-            editor.readonly_mode = 0;
+            editor.readonly_mode = 1;
             editor.cursor = 0;
             editor.view_offset = 0;
             clear_selection(&editor);
@@ -1376,7 +1389,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevious, LPSTR commandLine, 
     editor.bytes_per_row = cfg.bytes_per_row;
     editor.view_layout = cfg.view_layout;
     editor.edit_mode = cfg.edit_mode;
-    editor.readonly_mode = 0;
+    editor.readonly_mode = 1;
 
     WNDCLASSEXA windowClass = {0};
     windowClass.cbSize = sizeof(windowClass);
