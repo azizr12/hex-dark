@@ -13,6 +13,21 @@
 #define MAX_PATH_LEN            256
 #define DEFAULT_TRACKER_CAP     65536
 
+/* Add to hex.h */
+typedef enum {
+    HEX_OK = 0,
+    HEX_ERR_NULL_PTR = -1,
+    HEX_ERR_NOT_FOUND = -2,
+    HEX_ERR_PERMISSION_DENIED = -3,
+    HEX_ERR_FILE_LOCKED = -4,
+    HEX_ERR_DISK_FULL = -5,
+    HEX_ERR_EXTERNAL_MODIFICATION = -6
+} HexError;
+
+/* Update function signatures in hex.h */
+HexError init_file(HexEditor *ed, const char *filename);
+HexError save_dirty(HexEditor *ed);
+
 typedef enum {
     SELECTION_NONE = 0,
     SELECTION_HEX,

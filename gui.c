@@ -716,7 +716,7 @@ static void DoOpen(HWND hwnd)
         editor.bytes_per_row = cfg.bytes_per_row;
         editor.view_layout = cfg.view_layout;
         editor.edit_mode = cfg.edit_mode;
-        editor.readonly_mode = 0;
+        editor.readonly_mode = 1;
         editor.cursor = 0;
         editor.view_offset = 0;
 
